@@ -1,0 +1,11 @@
+# Private browser exports and local recovery material must never be published.
+recovery/
+output/
+.staging/
+dist/
+node_modules/
+*.log
+*.pid
+launcher/*.exe
+*.local.json
+.env*
