@@ -6,6 +6,7 @@ const h = value => String(value).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': 
 const paths = {
   left: '<path d="m14 6-6 6 6 6"/>', right: '<path d="m10 6 6 6-6 6"/>', down: '<path d="m7 10 5 5 5-5"/>', plus: '<path d="M12 5v14M5 12h14"/>', close: '<path d="m6 6 12 12M18 6 6 18"/>',
   events: '<path d="M3 4h8l10 10-7 7L3 10Z"/><circle cx="7.5" cy="8" r="1"/>', backup: '<path d="M12 3v12m-4-4 4 4 4-4M5 16v4h14v-4"/>', filter: '<path d="M4 5h16l-6 7v7l-4-2v-5Z"/>',
+  expand: '<path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/>', collapse: '<path d="M3 8h5V3m8 0v5h5M8 21v-5H3m18 0h-5v5"/>',
   palette: '<circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 1 8 8c0 3-4 0-5 2s2 6-2 6"/><circle cx="8" cy="9" r=".8"/><circle cx="12" cy="7.5" r=".8"/><circle cx="16" cy="9" r=".8"/>',
   trash: '<path d="M4 6h16M9 6V3h6v3M6 6l1 15h10l1-15M10 10v7m4-7v7"/>', check: '<path d="m5 12 4 4L19 6"/>', clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>', calendar: '<rect x="4" y="5" width="16" height="16" rx="3"/><path d="M8 3v4m8-4v4M4 11h16m-11 4h2m3 0h2m-7 3h2"/>'
 };
@@ -199,11 +200,12 @@ function renderRecording() {
   for (let band = 0; band < 4; band++) {
     const base = band * 360, recordsInBand = records.filter(e => e.start < base + 360 && e.end > base);
     bands += `<div class="band"><div class="band-heading"><span class="band-label">${['凌晨', '上午', '下午', '晚间'][band]}</span></div><div class="hour-labels">${Array.from({ length: 7 }, (_, i) => `<span>${timeText(base + i * 60)}</span>`).join('')}</div><div class="time-track" data-base="${base}" tabindex="0" role="group" aria-label="${timeText(base)}至${timeText(base + 360)}，拖选时间或按回车添加记录">`;
-    bands += recordsInBand.map(e => { const t = getEvent(data,e.eventId), start = Math.max(base, e.start), end = Math.min(base + 360, e.end), width = (end - start) / 360 * 100; return `<button class="time-block${width < 8 ? ' narrow' : ''}" data-entry="${h(e.id)}" style="left:${(start - base) / 360 * 100}%;width:${width}%;background:${entryBackground(e)};--block-color:${t.color}" title="${h(t.name)} ${timeText(e.start)} — ${timeText(e.end)}" aria-label="编辑${h(t.name)} ${timeText(e.start)} — ${timeText(e.end)}"><span>${width >= 8 ? h(t.name) : ''}</span></button>`; }).join('');
+    bands += recordsInBand.map(e => { const t = getEvent(data,e.eventId), start = Math.max(base, e.start), end = Math.min(base + 360, e.end), width = (end - start) / 360 * 100; return `<button class="time-block${width < 8 ? ' narrow' : ''}" data-entry="${h(e.id)}" style="left:${(start - base) / 360 * 100}%;width:${width}%;background:${entryBackground(e)};--block-color:${t.color}" title="${h(t.name)} ${timeText(e.start)} — ${timeText(e.end)}" aria-label="编辑${h(t.name)} ${timeText(e.start)} — ${timeText(e.end)}"><span>${h(t.name)}</span></button>`; }).join('');
     if (continuation && continuation[0] >= base && continuation[0] < base + 360) bands += `<button class="continue-marker${continuation[0] - base > 310 ? ' marker-edge' : ''}" data-continue="${continuation[0]}" style="left:${(continuation[0] - base) / 360 * 100}%" aria-label="从${timeText(continuation[0])}继续记录"><span class="boundary-stem"></span><span class="boundary-label">${timeText(continuation[0])}${icon('plus')}</span></button>`;
     bands += '</div></div>';
   }
   $('timeBands').innerHTML = bands;
+  queueTimelineLabels();
   $('entryList').innerHTML = records.map(e => { const t = getEvent(data, e.eventId); return `<button class="entry-row" data-entry="${h(e.id)}" aria-label="编辑${h(t.name)} ${timeText(e.start)} — ${timeText(e.end)}"><span class="entry-stripe" style="background:${t.color}"></span><span class="entry-info"><span class="entry-name">${h(t.name)}</span><span class="entry-times">${timeText(e.start)} — ${timeText(e.end)}</span></span><span class="entry-duration">${durationText(e.end-e.start)}</span></button>`; }).join('') || `<div class="empty-records"><button class="empty-add" data-new="true">${icon('clock')}<span>添加第一条记录</span></button></div>`;
   $('dayLegend').innerHTML = totals(records).map(([id, mins]) => legendItem(id, mins, false)).join('');
   const blank = Math.max(0,1440-recordedMinutes(statsRecords));
@@ -433,6 +435,70 @@ $('storageExport').onclick=downloadBackup;
 function showStorageFailure(message){$('storageNotice').hidden=false;$('storageNoticeText').textContent=`数据未能启用，原始记录已保留。${message||'请使用恢复入口或导出原件'}`;}
 
 $('manageEvents').innerHTML = icon('events') + '时间与分类'; $('backupButton').innerHTML = icon('backup') + '备份'; $('addEntry').innerHTML = icon('plus') + '记录时间';
+const timelineFullscreen=$('timelineFullscreenDialog'),timelineCard=$('timelineCard'),timelineFullscreenButton=$('timelineFullscreenButton');
+let timelinePlaceholder=null,timelinePageOverflow='';
+let timelineLabelsFrame=0,timelineLabelsWidth=0;
+function queueTimelineLabels(){cancelAnimationFrame(timelineLabelsFrame);timelineLabelsFrame=requestAnimationFrame(()=>layoutTimelineLabels());}
+function layoutTimelineLabels(card=timelineCard,expanded=timelineFullscreen.open){
+  for(const band of card.querySelectorAll('.band')){
+    band.querySelector('.time-band-callouts')?.remove();
+    const blocks=[...band.querySelectorAll('.time-block')];
+    blocks.forEach(block=>block.classList.remove('needs-callout'));
+    if(!expanded)continue;
+    const track=band.querySelector('.time-track'),width=track.clientWidth;
+    if(!width)continue;
+    const overflow=blocks.filter(block=>{
+      const text=block.querySelector('span');
+      return block.clientWidth<32||text.scrollWidth>text.clientWidth+1||text.scrollHeight>Math.min(text.clientHeight,block.clientHeight)+1;
+    });
+    if(!overflow.length)continue;
+    const labels=document.createElement('div');labels.className='time-band-callouts';band.append(labels);
+    const lanes=[],placements=[];
+    for(const block of overflow){
+      block.classList.add('needs-callout');
+      const text=block.querySelector('span'),label=document.createElement('button');
+      label.type='button';label.className='time-band-callout';label.dataset.entry=block.dataset.entry;
+      label.title=block.title;label.setAttribute('aria-label',block.getAttribute('aria-label'));
+      const dot=document.createElement('i');dot.className='legend-dot';dot.style.background=block.style.getPropertyValue('--block-color');
+      const name=document.createElement('span');name.textContent=text.textContent;label.append(dot,name);labels.append(label);
+      const labelWidth=label.offsetWidth,labelHeight=label.offsetHeight,center=block.offsetLeft+block.offsetWidth/2;
+      const left=Math.max(0,Math.min(width-labelWidth,center-labelWidth/2)),right=left+labelWidth;
+      let lane=lanes.findIndex(row=>row.items.every(item=>right+10<=item.left||left>=item.right+10));
+      if(lane<0){lane=lanes.length;lanes.push({height:0,items:[]});}
+      lanes[lane].height=Math.max(lanes[lane].height,labelHeight);lanes[lane].items.push({left,right});
+      placements.push({label,left,center,lane,color:block.style.getPropertyValue('--block-color')});
+    }
+    let height=12;const tops=lanes.map(row=>{const top=height;height+=row.height+10;return top;});
+    labels.style.height=`${height}px`;
+    const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.classList.add('time-band-connectors');svg.setAttribute('aria-hidden','true');svg.setAttribute('viewBox',`0 0 ${width} ${height}`);
+    for(const {label,left,center,lane,color} of placements){
+      const top=tops[lane];label.style.left=`${left}px`;label.style.top=`${top}px`;
+      const path=document.createElementNS('http://www.w3.org/2000/svg','path');path.setAttribute('d',`M${center} 0V${top-5}H${left+12}V${top}`);path.setAttribute('stroke',color);svg.append(path);
+    }
+    labels.prepend(svg);
+  }
+}
+new ResizeObserver(()=>{const width=timelineCard.clientWidth;if(width!==timelineLabelsWidth){timelineLabelsWidth=width;queueTimelineLabels();}}).observe(timelineCard);
+function updateTimelineFullscreenButton(){
+  const expanded=timelineFullscreen.open;
+  timelineFullscreenButton.innerHTML=icon(expanded?'collapse':'expand');
+  timelineFullscreenButton.setAttribute('aria-expanded',String(expanded));
+  timelineFullscreenButton.setAttribute('aria-label',expanded?'退出时间带全屏':'全屏展示时间带');
+  timelineFullscreenButton.title=expanded?'退出全屏':'全屏展示';
+}
+timelineFullscreenButton.onclick=()=>{
+  if(timelineFullscreen.open){timelineFullscreen.close();return;}
+  closeBackup();for(const id of dropdownAnchors.keys())closeDropdown(id,false);
+  cancelDrag();clearHover();
+  timelinePlaceholder=document.createComment('timeline position');timelineCard.before(timelinePlaceholder);
+  timelineFullscreen.append(timelineCard);timelinePageOverflow=document.body.style.overflow;document.body.style.overflow='hidden';
+  timelineFullscreen.showModal();updateTimelineFullscreenButton();queueTimelineLabels();timelineFullscreenButton.focus({preventScroll:true});
+};
+timelineFullscreen.addEventListener('close',()=>{
+  cancelDrag();clearHover();timelinePlaceholder?.replaceWith(timelineCard);timelinePlaceholder=null;
+  document.body.style.overflow=timelinePageOverflow;updateTimelineFullscreenButton();queueTimelineLabels();timelineFullscreenButton.focus({preventScroll:true});
+});
+updateTimelineFullscreenButton();
 for (const id of ['periodPrev', 'dayPrev']) $(id).innerHTML = icon('left');
 for (const id of ['periodNext', 'dayNext']) $(id).innerHTML = icon('right');
 $('dateChevron').innerHTML = icon('down');
@@ -693,7 +759,7 @@ $('timeBands').addEventListener('pointerup', event => {
   const start = drag.start, end = drag.moved ? drag.end : Math.min(1440, start + 30);
   cancelDrag(); openEntry(null, start, end);
 });
-function dragScroll(){if(!drag)return;const speed=drag.lastY>innerHeight-48?8:drag.lastY<48?-8:0;if(speed){window.scrollBy(0,speed);showSelection(...dragRange(drag.lastX,drag.lastY));}drag.frame=requestAnimationFrame(dragScroll);}
+function dragScroll(){if(!drag)return;const speed=drag.lastY>innerHeight-48?8:drag.lastY<48?-8:0;if(speed){(timelineFullscreen.open?timelineFullscreen:window).scrollBy(0,speed);showSelection(...dragRange(drag.lastX,drag.lastY));}drag.frame=requestAnimationFrame(dragScroll);}
 function cancelDrag() { if (drag) {const previous=drag;drag=null;cancelAnimationFrame(previous.frame);$('timeBands').querySelectorAll('.selection,.drag-readout').forEach(el=>el.remove());if(previous.track.hasPointerCapture(previous.pointerId))previous.track.releasePointerCapture(previous.pointerId);} }
 $('timeBands').addEventListener('pointercancel', cancelDrag);
 $('timeBands').addEventListener('lostpointercapture', cancelDrag);

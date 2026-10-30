@@ -100,6 +100,7 @@ main{max-width:1192px;margin:42px auto 0}
 .time-block:hover{filter:brightness(.96);box-shadow:0 0 0 1.5px var(--block-color);z-index:2}
 .time-block span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .time-block.narrow{padding:0}
+.time-block.narrow>span{visibility:hidden}
 .selection{position:absolute;top:0;bottom:0;background:#31594b25;border:1.5px solid var(--green);border-radius:5px;pointer-events:none;z-index:5}
 .selection-readout{position:absolute;bottom:calc(100% + 7px);left:50%;transform:translateX(-50%);font-size:10px;background:var(--green);color:#fff;white-space:nowrap;border-radius:5px;padding:5px 8px;box-shadow:0 3px 9px #263f2720}
 .timeline-legend{display:flex;gap:13px;flex-wrap:wrap;min-height:15px;padding-top:1px}
@@ -672,3 +673,32 @@ dialog[open]::backdrop{opacity:1}
   dialog[open]::backdrop{opacity:0}
 }
 @media(prefers-reduced-motion:reduce){dialog,dialog::backdrop{transition:none!important}}
+
+.timeline-actions{display:flex;align-items:center;gap:6px;margin-left:auto;flex-shrink:0}
+.timeline-fullscreen-button{flex-shrink:0;color:#87997b;border-radius:7px}
+.timeline-fullscreen-button:hover{background:#f0f4e9;color:var(--green)}
+.timeline-actions svg{width:17px;height:17px}
+.timeline-fullscreen-dialog{inset:0;margin:0;width:100%;max-width:none;height:100dvh;max-height:none;padding:0;border:0;border-radius:0;background:#fff;overflow:auto;overscroll-behavior:contain}
+.timeline-fullscreen-dialog[open]{display:flex}
+.timeline-fullscreen-dialog .timeline-card{width:100%;min-height:100%;display:flex;flex-direction:column;align-self:stretch;padding:clamp(20px,3.5vw,56px);border:0;border-radius:0;box-shadow:none}
+.timeline-fullscreen-dialog .day-summary{flex-shrink:0;margin-bottom:clamp(24px,4vh,42px)}
+.timeline-fullscreen-dialog .day-summary-title{font-size:22px}
+.timeline-fullscreen-dialog .timeline-bands{position:relative;flex:1;display:flex;flex-direction:column;justify-content:space-around;gap:clamp(20px,3vh,36px)}
+.timeline-fullscreen-dialog .band{margin-bottom:0}
+.timeline-fullscreen-dialog .band-label{font-size:13px}
+.timeline-fullscreen-dialog .hour-labels{font-size:12px;padding-bottom:10px}
+.timeline-fullscreen-dialog .time-track{height:clamp(48px,7vh,84px)}
+.timeline-fullscreen-dialog .time-block{font-size:14px;padding-left:10px;padding-right:10px}
+.timeline-fullscreen-dialog .time-block.narrow{padding:0}
+.timeline-fullscreen-dialog .time-block.narrow>span{visibility:visible}
+.timeline-fullscreen-dialog .time-block>span{white-space:normal;overflow-wrap:anywhere;text-overflow:clip;line-height:1.35;max-height:100%;min-width:0}
+.timeline-fullscreen-dialog .time-block.needs-callout>span{visibility:hidden}
+.time-band-callouts{display:none}
+.timeline-fullscreen-dialog .time-band-callouts{display:block;position:relative;width:100%}
+.timeline-fullscreen-dialog .time-band-callout{position:absolute;z-index:1;justify-content:flex-start;align-items:flex-start;width:max-content;max-width:min(260px,100%);padding:4px 7px;background:#fff;border-radius:4px;gap:6px;font-size:13px;line-height:1.4;text-align:left}
+.time-band-callout>span{min-width:0;overflow-wrap:anywhere;white-space:normal}
+.time-band-callout .legend-dot{margin-top:6px}
+.time-band-callout:hover{background:#f2f6ed}
+.time-band-connectors{position:absolute;inset:0;width:100%;height:100%;overflow:visible;pointer-events:none;fill:none;stroke-width:1;opacity:.65}
+.timeline-fullscreen-dialog .timeline-legend{flex-shrink:0;margin-top:28px;gap:16px}
+.timeline-fullscreen-dialog .legend-item{font-size:13px;max-width:none;overflow-wrap:anywhere}
