@@ -10,7 +10,7 @@ const paths = {
   palette: '<circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 1 8 8c0 3-4 0-5 2s2 6-2 6"/><circle cx="8" cy="9" r=".8"/><circle cx="12" cy="7.5" r=".8"/><circle cx="16" cy="9" r=".8"/>',
   trash: '<path d="M4 6h16M9 6V3h6v3M6 6l1 15h10l1-15M10 10v7m4-7v7"/>', check: '<path d="m5 12 4 4L19 6"/>', clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>', calendar: '<rect x="4" y="5" width="16" height="16" rx="3"/><path d="M8 3v4m8-4v4M4 11h16m-11 4h2m3 0h2m-7 3h2"/>'
 };
-const icon = name => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] || ''}</svg>`;
+const icon = name => `<svg${name==='down'?' class="dropdown-chevron"':''} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] || ''}</svg>`;
 const FOCUS_KEY = 'where-is-my-time.focus-category.v1';
 let data = emptyData(), rawStorage = null, persistenceLocked = false, selected = dateKey(new Date()), cursor = selected, view = 'month', filter = null;
 let editing = null, modalColor = PALETTE[0], imported = null, toastTimer, drag = null, confirmAction = null;
@@ -66,11 +66,11 @@ function statisticalRecords() {
 }
 function entryBackground(entry, mode='events') { const item=getEvent(data,entry.eventId);return (mode==='events'?item.color:displayGroup(item.categoryId,'categories').color)+'70'; }
 function weekStart(key) { return addDays(key, -((fromKey(key).getDay() + 6) % 7)); }
-function periodRange() {
-  const d = fromKey(cursor), y = d.getFullYear(), m = d.getMonth();
-  if (view === 'month') return [dateKey(new Date(y, m, 1, 12)), dateKey(new Date(y, m + 1, 1, 12))];
-  if (view === 'week') { const first = weekStart(cursor); return [first, addDays(first, 7)]; }
-  if (view === 'day') return [cursor, addDays(cursor, 1)];
+function periodRange(mode=view,key=cursor) {
+  const d = fromKey(key), y = d.getFullYear(), m = d.getMonth();
+  if (mode === 'month') return [dateKey(new Date(y, m, 1, 12)), dateKey(new Date(y, m + 1, 1, 12))];
+  if (mode === 'week') { const first = weekStart(key); return [first, addDays(first, 7)]; }
+  if (mode === 'day') return [key, addDays(key, 1)];
   return [`${y}-01-01`, `${y + 1}-01-01`];
 }
 function fullPeriodEntries() { const [start,end] = periodRange(); return statisticalRecords().entries.filter(entry=>entry.date>=start&&entry.date<end); }
@@ -94,6 +94,21 @@ function legendItem(id, minutes, interactive = true, mode = interactive ? aggreg
   if (item.automatic) interactive = false;
   return `<${interactive ? 'button' : 'span'} class="legend-item" ${interactive ? `data-filter="${h(id || '')}" data-filter-kind="${mode}"` : ''} title="${h(item.name)} ${durationText(minutes)}"><span class="legend-dot" style="background:${item.color}"></span>${h(item.name)}</${interactive ? 'button' : 'span'}>`;
 }
+function heatmapLegend(color){
+  return `<span class="heatmap-legend-title">全天占比</span><div class="heatmap-scale">${[0,25,50,75,100].map(percent=>`<span><i style="background:${heatColor(color,percent/100*1440)}"></i>${percent}%</span>`).join('')}</div>`;
+}
+function categoryStatMarkup(entries){
+  const categories=categoryTotals(data,entries),spending=categories.reduce((sum,[,minutes])=>sum+minutes,0);
+  const visible=categories.length?categories:data.categories.map(category=>[category.id,0]);
+  return `<div class="category-stat"><span class="stat-label">分类占比</span><div class="category-share-bar">${categories.map(([id,minutes])=>`<span style="background:${getCategory(data,id)?.color||'#BEC7B5'};flex:${minutes}" title="${h(getCategory(data,id)?.name||'未分类')} ${spending?Math.round(minutes/spending*100):0}%"></span>`).join('')}</div><div class="category-percentages">${visible.map(([id,minutes])=>`<span><i style="background:${getCategory(data,id)?.color||'#BEC7B5'}"></i>${h(getCategory(data,id)?.name||'未分类')}<strong>${spending?Math.round(minutes/spending*100):0}%</strong></span>`).join('')}</div></div>`;
+}
+function focusStatMarkup(entries,exportControl=false){
+  const focus=categoryFocus(data,entries,focusCategory),category=displayGroup(focusCategory,'categories'),percent=`${Number((focus.share*100).toFixed(1))}%`;
+  return `<div class="focus-stat"><div class="focus-heading"><span class="stat-label">关注分类</span><button type="button" ${exportControl?'data-export-category="focus"':'id="focusCategoryButton"'} class="focus-category-trigger" aria-label="选择关注分类" aria-haspopup="listbox" aria-controls="focusDropdown" aria-expanded="false"><i class="legend-dot" style="background:${category.color}"></i><span>${h(category.name)}</span>${icon('down')}</button></div><div class="focus-value"><span class="stat-value">${durationText(focus.minutes)}</span><span class="focus-percent">${percent}</span></div><div class="focus-share-track" role="img" aria-label="${h(category.name)}占比 ${percent}"><span style="width:${focus.share*100}%;background:${category.color}"></span></div></div>`;
+}
+function daysStatMarkup(entries){
+  return `<div class="days-stat"><span class="stat-label">记录天数</span><span class="stat-value">${new Set(entries.map(entry=>entry.date)).size}<span class="stat-unit">天</span></span></div>`;
+}
 function renderOverview() {
   closeDropdown('filterDropdown', false);
   closeDropdown('focusDropdown', false);
@@ -108,22 +123,17 @@ function renderOverview() {
   if (view === 'week') { const a = fromKey(first), b = fromKey(addDays(last, -1)); title = a.getFullYear() === b.getFullYear() ? `${a.getFullYear()}年 ${a.getMonth() + 1}/${a.getDate()} — ${b.getMonth() + 1}/${b.getDate()}` : `${a.getFullYear()}/${a.getMonth() + 1}/${a.getDate()} — ${b.getFullYear()}/${b.getMonth() + 1}/${b.getDate()}`; }
   if (view === 'day') title = `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`;
   $('periodTitle').textContent = title;
-  const categories = categoryTotals(data, entries), spending = categories.reduce((s,[,m])=>s+m,0);
-  const focus = categoryFocus(data,fullPeriodEntries(),focusCategory), focused = displayGroup(focusCategory,'categories');
-  const focusPercent = `${Number((focus.share*100).toFixed(1))}%`;
-  const visibleCategories = categories.length ? categories : data.categories.map(c => [c.id, 0]);
-  $('stats').innerHTML = `<div class="category-stat"><span class="stat-label">分类占比</span><div class="category-share-bar">${categories.map(([id, mins]) => `<span style="background:${getCategory(data,id)?.color||'#BEC7B5'};flex:${mins}" title="${h(getCategory(data,id)?.name||'未分类')} ${spending?Math.round(mins/spending*100):0}%"></span>`).join('')}</div><div class="category-percentages">${visibleCategories.map(([id,mins])=>`<span><i style="background:${getCategory(data,id)?.color||'#BEC7B5'}"></i>${h(getCategory(data,id)?.name||'未分类')}<strong>${spending?Math.round(mins/spending*100):0}%</strong></span>`).join('')}</div></div>
-    <div class="focus-stat"><div class="focus-heading"><span class="stat-label">关注分类</span><button id="focusCategoryButton" class="focus-category-trigger" aria-label="选择关注分类" aria-haspopup="listbox" aria-controls="focusDropdown" aria-expanded="false"><i class="legend-dot" style="background:${focused.color}"></i><span>${h(focused.name)}</span>${icon('down')}</button></div><div class="focus-value"><span class="stat-value">${durationText(focus.minutes)}</span><span class="focus-percent">${focusPercent}</span></div><div class="focus-share-track" role="img" aria-label="${h(focused.name)}占比 ${focusPercent}"><span style="width:${focus.share*100}%;background:${focused.color}"></span></div></div>
-    <div class="days-stat"><span class="stat-label">记录天数</span><span class="stat-value">${new Set(entries.map(e=>e.date)).size}<span class="stat-unit">天</span></span></div>`;
+  $('stats').innerHTML=categoryStatMarkup(entries)+focusStatMarkup(fullPeriodEntries())+daysStatMarkup(entries);
   const filterEvent = view === 'year' ? displayGroup(yearCategory, 'categories') : filter ? displayGroup(filter.id, filter.kind) : null;
   $('filterButton').innerHTML = (view === 'year' ? `<span class="legend-dot" style="background:${filterEvent.color}"></span>` : icon('filter')) + h(filterEvent ? filterEvent.name : aggregation === 'events' ? '全部事件' : '全部分类') + (view === 'year' ? icon('down') : ''); $('filterButton').classList.toggle('active', view === 'year' || !!filter);
   $('filterButton').setAttribute('aria-label', view === 'year' ? '选择年度分类' : aggregation === 'events' ? '筛选事件' : '筛选分类');
   $('filterButton').setAttribute('aria-haspopup', 'listbox');
   $('filterButton').setAttribute('aria-controls', 'filterDropdown');
   $('filterButton').title = filterEvent ? `当前${view === 'year' ? '年度分类' : '筛选'}：${filterEvent.name}` : '筛选';
-  $('legend').innerHTML = view === 'year' ? `<span class="heatmap-legend-title">全天占比</span><div class="heatmap-scale">${[0, 25, 50, 75, 100].map(percent => `<span><i style="background:${heatColor(filterEvent.color, percent / 100 * 1440)}"></i>${percent}%</span>`).join('')}</div>` : groups.slice(0, 8).map(([id, mins]) => legendItem(id, mins)).join('') || '<span class="legend-item"><span class="legend-empty"></span>暂无事件</span>';
+  $('legend').innerHTML = view === 'year' ? heatmapLegend(filterEvent.color) : groups.slice(0, 8).map(([id, mins]) => legendItem(id, mins)).join('') || '<span class="legend-item"><span class="legend-empty"></span>暂无事件</span>';
   $('periodTotal').textContent = `${entries.filter(entry=>!entry.automatic).length} 条记录`;
   if (view === 'month') renderMonth(); else if (view === 'week') renderWeek(); else if (view === 'day') renderDayOverview(entries); else renderYear();
+  if($('timelineExportDialog').open){renderExportWidgets();updateExportSelection();}
 }
 function renderMonth() {
   const d = fromKey(cursor), first = dateKey(new Date(d.getFullYear(), d.getMonth(), 1, 12)), start = weekStart(first), next = dateKey(new Date(d.getFullYear(), d.getMonth() + 1, 1, 12));
@@ -159,10 +169,10 @@ function renderDayOverview(entries) {
   stops.push(`#eef1e7 ${start}% 100%`);
   $('overview').innerHTML = `<div class="day-overview"><div class="donut" style="background:conic-gradient(${stops.join(',')})"><div class="donut-content"><span class="donut-number spending-number">${durationText(total)}</span><span class="donut-label">事件合计</span></div></div><div class="day-bars">${groups.map(([id, mins]) => { const t = displayGroup(id); return `<div><div class="day-bar-header"><span>${h(t.name)}</span><span>${durationText(mins)}</span></div><div class="day-bar-track"><div class="day-bar-fill" style="background:${t.color};width:${mins / total * 100}%"></div></div></div>`; }).join('') || `<div class="empty-chart"><button class="button quiet" data-new-date="${cursor}">${icon('plus')}添加记录</button></div>`}</div></div>`;
 }
-function renderYear() {
-  const year = fromKey(cursor).getFullYear(), first = `${year}-01-01`, end = `${year + 1}-01-01`, start = weekStart(first), weeks = Math.ceil((Math.round((fromKey(end) - fromKey(start)) / 86400000)) / 7);
-  const category = displayGroup(yearCategory, 'categories');
-  const byDate = new Map(); for (const e of statisticalRecords().entries.filter(e => e.date >= first && e.date < end)) if((getEvent(data,e.eventId).categoryId||null)===yearCategory) byDate.set(e.date,(byDate.get(e.date)||0)+e.end-e.start);
+function yearChartMarkup(key=cursor,categoryId=yearCategory) {
+  const year = fromKey(key).getFullYear(), first = `${year}-01-01`, end = `${year + 1}-01-01`, start = weekStart(first), weeks = Math.ceil((Math.round((fromKey(end) - fromKey(start)) / 86400000)) / 7);
+  const category = displayGroup(categoryId, 'categories');
+  const byDate = new Map(); for (const e of statisticalRecords().entries.filter(e => e.date >= first && e.date < end)) if((getEvent(data,e.eventId).categoryId||null)===categoryId) byDate.set(e.date,(byDate.get(e.date)||0)+e.end-e.start);
   let html = `<div class="year-scroll"><div class="year-chart" data-weeks="${weeks}"><div class="year-labels"><span>一</span><span></span><span>三</span><span></span><span>五</span><span></span><span>日</span></div><div class="year-weeks" style="grid-template-columns:repeat(${weeks},var(--year-cell-size,16px))">`;
   let previousMonth = -1;
   for (let w = 0; w < weeks; w++) {
@@ -177,7 +187,10 @@ function renderYear() {
     }
     html += '</div>';
   }
-  $('overview').innerHTML = html + `</div></div></div><div class="year-bottom"><span>${h(category.name)}</span><span>${byDate.size} 天</span></div>`;
+  return html + `</div></div></div><div class="year-bottom"><span>${h(category.name)}</span><span>${byDate.size} 天</span></div>`;
+}
+function renderYear() {
+  $('overview').innerHTML=yearChartMarkup();
   updateYearLayout();
 }
 function updateYearLayout() {
@@ -352,17 +365,35 @@ function openDatePicker() {
   pickerCursor = selected; pickerMonthMode = false; renderDatePicker(); openDropdown('dateDropdown', $('dateTrigger'), 'start');
 }
 function closeDropdown(id, restoreFocus = true) {
-  const panel = $(id); if (!panel?.matches(':popover-open')) return;
-  const anchor = dropdownAnchors.get(id); panel.hidePopover(); anchor?.setAttribute('aria-expanded', 'false');
-  if (restoreFocus && anchor?.isConnected) anchor.focus({ preventScroll: true });
+  const panel = $(id); if (!panel) return;
+  const anchor = dropdownAnchors.get(id),wasOpen=panel.matches(':popover-open');
+  if(wasOpen)panel.hidePopover();anchor?.setAttribute('aria-expanded','false');
+  if (wasOpen && restoreFocus && anchor?.isConnected) anchor.focus({ preventScroll: true });
 }
+// Native light dismissal happens before click, so remember an open trigger at pointerdown.
+let dropdownPointerAction=null;
+document.addEventListener('pointerdown',event=>{
+  dropdownPointerAction=null;if(event.button!==0)return;
+  for(const [id,anchor] of dropdownAnchors){
+    if(anchor.contains(event.target)&&$(id).matches(':popover-open')){dropdownPointerAction={id,anchor};break;}
+  }
+},true);
+document.addEventListener('pointercancel',()=>{dropdownPointerAction=null;},true);
+document.addEventListener('click',event=>{
+  const action=dropdownPointerAction;dropdownPointerAction=null;
+  if(!action||event.detail===0||!action.anchor.contains(event.target))return;
+  closeDropdown(action.id,false);event.preventDefault();event.stopPropagation();
+},true);
 function openDropdown(id, anchor, align = 'end') {
   const panel = $(id);
-  if (panel.matches(':popover-open')) { closeDropdown(id); return; }
+  if (panel.matches(':popover-open')) {
+    if(dropdownAnchors.get(id)===anchor){closeDropdown(id);return;}
+    closeDropdown(id,false);
+  }
   for (const otherId of dropdownAnchors.keys()) if (otherId !== id) closeDropdown(otherId, false);
   const host = anchor.closest('dialog') || document.body;
   if (panel.parentElement !== host) host.append(panel);
-  dropdownAnchors.set(id, anchor); anchor.setAttribute('aria-controls', id); anchor.setAttribute('aria-expanded', 'true'); anchor.setAttribute('aria-haspopup', ['filterDropdown','categoryDropdown','focusDropdown'].includes(id) ? 'listbox' : 'dialog');
+  dropdownAnchors.set(id, anchor); anchor.setAttribute('aria-controls', id); anchor.setAttribute('aria-expanded', 'true'); anchor.setAttribute('aria-haspopup', ['filterDropdown','categoryDropdown','focusDropdown','exportRangeDropdown'].includes(id) ? 'listbox' : 'dialog');
   if (id === 'dateDropdown' || id === 'colorDropdown') { panel.setAttribute('role', 'dialog'); panel.setAttribute('aria-modal', 'false'); }
   panel.querySelectorAll('.filter-choice').forEach(button => { button.setAttribute('role', 'option'); button.tabIndex = -1; });
   panel.style.maxHeight = `${Math.max(150, Math.min(420, innerHeight - 32))}px`; panel.showPopover();
@@ -499,6 +530,211 @@ timelineFullscreen.addEventListener('close',()=>{
   document.body.style.overflow=timelinePageOverflow;updateTimelineFullscreenButton();queueTimelineLabels();timelineFullscreenButton.focus({preventScroll:true});
 });
 updateTimelineFullscreenButton();
+$('timelineDownloadButton').innerHTML=icon('backup');
+$('timelineDownloadButton').onclick=()=>{
+  exportForm.reset();
+  const mode=['year','day'].includes(view)?view:'month';
+  exportRanges.categories=mode;exportRanges.focus=mode;exportRanges.days=view==='year'?'year':'month';
+  $('exportViewLabel').textContent=`当前${{year:'年',month:'月',week:'周',day:'日'}[view]}视图`;
+  $('exportOverviewModule').closest('.export-widget-option').hidden=view==='year';
+  renderExportWidgets();
+  $('timelineExportDialog').showModal();
+  updateExportSelection();
+};
+const exportForm=$('timelineExportForm');
+let exportPreviewData=null,exportPreviewVersion=0,exportPreviewFrame=0;
+const exportRanges={categories:'month',focus:'month',days:'month'};
+let exportRangeTarget=null;
+function exportPeriodTitle(mode){
+  const date=fromKey(cursor),year=date.getFullYear();
+  return mode==='year'?`${year}年`:mode==='month'?`${year}年${date.getMonth()+1}月`:`${year}年${date.getMonth()+1}月${date.getDate()}日`;
+}
+function buildExportStat(kind){
+  const [start,end]=periodRange(exportRanges[kind]),records=statisticalRecords().entries.filter(entry=>entry.date>=start&&entry.date<end);
+  const holder=document.createElement('div');
+  holder.innerHTML=kind==='focus'?focusStatMarkup(records,true):kind==='categories'?categoryStatMarkup(filteredEntries(records)):daysStatMarkup(filteredEntries(records));
+  const content=holder.firstElementChild,label=content.querySelector('.stat-label');
+  label.textContent=`${exportPeriodTitle(exportRanges[kind])} ${label.textContent}`;
+  return content;
+}
+function buildExportDistribution(exportDate){
+  const content=$('dayDistribution').cloneNode(true),records=statisticalRecords().byDate.get(exportDate)||[];
+  const items=totals(records).map(([id,minutes])=>({...getEvent(data,id),minutes})),blank=Math.max(0,1440-recordedMinutes(records));
+  if(blank)items.push({name:'空白',color:'#F0F3E9',minutes:blank});
+  const legend=document.createElement('div');legend.className='distribution-legend';
+  legend.innerHTML=items.map(item=>`<span class="distribution-legend-item"><i class="legend-dot" style="background:${item.color}"></i><span class="distribution-legend-name">${h(item.name)}</span><span class="distribution-legend-duration">${durationText(item.minutes)}</span></span>`).join('');
+  content.append(legend);return content;
+}
+function buildExportYear(){
+  const card=document.createElement('div');card.className='overview-card export-year-component';
+  const year=fromKey(cursor).getFullYear(),category=displayGroup(yearCategory,'categories');
+  card.innerHTML=`<div class="overview-toolbar"><h2>${year}年</h2><button type="button" class="export-year-category" data-export-category="year" aria-label="选择年度分类" aria-haspopup="listbox" aria-expanded="false"><i class="legend-dot" style="background:${category.color}"></i><span>${h(category.name)}</span>${icon('down')}</button></div><div class="overview-body">${yearChartMarkup()}</div><div class="overview-footer"><div class="legend">${heatmapLegend(category.color)}</div></div>`;
+  return card;
+}
+function renderExportWidgets(){
+  const sources={timeline:$('timeBands'),entries:$('entryList'),overview:$('overview')};
+  for(const button of exportForm.querySelectorAll('[data-export-range]'))button.innerHTML=`${exportPeriodTitle(exportRanges[button.dataset.exportRange])}${icon('down')}`;
+  for(const widget of exportForm.querySelectorAll('[data-export-widget]')){
+    const kind=widget.dataset.exportWidget;
+    const content=kind==='distribution'?buildExportDistribution(selected):kind==='year'?buildExportYear():Object.hasOwn(exportRanges,kind)?buildExportStat(kind):sources[kind].cloneNode(true);
+    if(widget.dataset.exportWidget==='timeline')content.append($('dayLegend').cloneNode(true));
+    content.removeAttribute('id');content.querySelectorAll('[id]').forEach(element=>element.removeAttribute('id'));
+    content.querySelectorAll('.stat-label,.continue-marker,.hover-cursor,.selection,.drag-readout,.time-band-callouts,.timeline-actions').forEach(element=>element.remove());
+    content.querySelectorAll('.needs-callout').forEach(element=>element.classList.remove('needs-callout'));
+    if(widget.dataset.exportWidget==='entries'){
+      [...content.children].slice(3).forEach(element=>element.remove());
+      if(!entriesOn(data,selected).length)content.textContent='暂无记录';
+    }
+    if(kind==='year')content.querySelectorAll('.overview-body,.overview-footer').forEach(element=>element.inert=true);
+    widget.replaceChildren(content);
+  }
+}
+exportForm.addEventListener('click',event=>{
+  const control=event.target.closest('button');
+  if(control?.dataset.exportCategory){
+    event.stopPropagation();
+    if(control.dataset.exportCategory==='focus'){renderFocusChoices();openDropdown('focusDropdown',control);}
+    else{
+      $('filterChoices').setAttribute('aria-label','年度分类');
+      $('filterChoices').innerHTML=[...data.categories,{id:'',name:'未分类',color:'#BEC7B5'}].map(category=>pickerOption(category,`data-year-category="${h(category.id)}"`,(category.id||null)===yearCategory)).join('');
+      openDropdown('filterDropdown',control);
+    }
+    return;
+  }
+  if(control?.dataset.exportRange){
+    event.stopPropagation();exportRangeTarget=control.dataset.exportRange;
+    const modes=exportRangeTarget==='days'?['year','month']:['year','month','day'];
+    $('exportRangeChoices').innerHTML=modes.map(mode=>`<button type="button" class="filter-choice" data-export-period="${mode}" aria-selected="${exportRanges[exportRangeTarget]===mode}"><span>当前${{year:'年',month:'月',day:'日'}[mode]}</span><span class="export-period-value">${exportPeriodTitle(mode)}</span><span class="checkmark">${exportRanges[exportRangeTarget]===mode?icon('check'):''}</span></button>`).join('');
+    openDropdown('exportRangeDropdown',control,'start');return;
+  }
+  if(event.target.closest('input,button,label'))return;
+  const checkbox=event.target.closest('.export-widget-option')?.querySelector('input[name="modules"]');
+  if(checkbox){checkbox.checked=!checkbox.checked;updateExportSelection();}
+});
+$('exportRangeDropdown').addEventListener('click',event=>{
+  const choice=event.target.closest('[data-export-period]');if(!choice)return;
+  const target=exportRangeTarget;exportRanges[target]=choice.dataset.exportPeriod;
+  closeDropdown('exportRangeDropdown',false);renderExportWidgets();updateExportSelection();
+  exportForm.querySelector(`[data-export-range="${target}"]`).focus({preventScroll:true});
+});
+function updateExportSelection(){
+  const modules=new Set(new FormData(exportForm).getAll('modules')),version=++exportPreviewVersion;
+  exportPreviewData=null;$('timelineExportConfirm').disabled=true;cancelAnimationFrame(exportPreviewFrame);
+  const status=$('timelineExportStatus'),image=$('timelineExportPreview'),panel=image.parentElement;
+  status.hidden=false;status.textContent=modules.size?'正在生成预览…':'选择要导出的模块';
+  panel.setAttribute('aria-busy',String(!!modules.size));
+  if(!modules.size){image.hidden=true;image.removeAttribute('src');return;}
+  exportPreviewFrame=requestAnimationFrame(async()=>{
+    try{
+      const preview=await createTimelineExportPreview(modules,selected);
+      if(version!==exportPreviewVersion||!$('timelineExportDialog').open)return;
+      exportPreviewData=preview;image.src=preview.image.src;image.hidden=false;status.hidden=true;
+      $('timelineExportConfirm').disabled=exportForm.getAttribute('aria-busy')==='true';
+    }catch(error){
+      if(version!==exportPreviewVersion)return;
+      image.hidden=true;status.textContent=`无法生成预览：${error.message}`;
+    }finally{if(version===exportPreviewVersion)panel.setAttribute('aria-busy','false');}
+  });
+}
+exportForm.addEventListener('change',updateExportSelection);
+function buildTimelineExport(modules,exportDate){
+  const page=document.createElement('div');page.className=`timeline-export-surface${modules.size===1&&modules.has('timeline')?' export-timeline-only':''}`;
+  const sectionHeading=title=>{
+    const heading=document.createElement('div');heading.className='section-heading export-section-heading';
+    const name=document.createElement('h2');name.textContent=title;heading.append(name);
+    return heading;
+  };
+  const summaryChoices=[['categories','.category-stat'],['focus','.focus-stat'],['days','.days-stat']].filter(([key])=>modules.has(key));
+  const includeOverview=modules.has('overview')&&!(view==='year'&&modules.has('year'));
+  const hasOverview=includeOverview||summaryChoices.length>0;
+  if(modules.has('year')){
+    const section=document.createElement('section');section.append(sectionHeading('当前年视图'),buildExportYear());page.append(section);
+  }
+  if(hasOverview){
+    const section=document.createElement('section'),card=document.createElement('div');card.className='overview-card';
+    section.append(sectionHeading('时间总览'),card);
+    if(summaryChoices.length){
+      const stats=document.createElement('div');stats.className='stats';stats.style.gridTemplateColumns=`repeat(${summaryChoices.length},minmax(0,1fr))`;
+      summaryChoices.forEach(([kind])=>stats.append(buildExportStat(kind)));card.append(stats);
+    }
+    if(includeOverview){
+      const toolbar=document.createElement('div');toolbar.className='overview-toolbar';
+      const title=document.createElement('h2');title.textContent=$('periodTitle').textContent;toolbar.append(title);card.append(toolbar);
+      const chart=$('overview').cloneNode(true);if(!summaryChoices.length)chart.classList.add('export-chart-spaced');card.append(chart);
+      card.append(document.querySelector('.overview-footer').cloneNode(true));
+    }
+    page.append(section);
+  }
+  const hasTimeline=modules.has('timeline'),hasEntries=modules.has('entries'),hasDistribution=modules.has('distribution');
+  if(hasDistribution){
+    const distribution=document.createElement('section');distribution.className='daily-card export-distribution';
+    const heading=document.createElement('h3');heading.textContent='全天分布';distribution.append(heading,buildExportDistribution(exportDate));
+    page.append(distribution);
+  }
+  if(hasTimeline||hasEntries){
+    const section=document.createElement('section');section.className='export-record-section';
+    const layout=document.createElement('div');layout.className=`record-layout export-record-layout${hasTimeline&&hasEntries?' export-record-paired':''}`;section.append(layout);
+    let timeline;
+    if(hasTimeline){
+      timeline=timelineCard.cloneNode(true);timeline.classList.add('export-timeline');
+      timeline.querySelector('#dayHeading').textContent='全天记录';
+      timeline.querySelectorAll('.timeline-actions,.continue-button,.continue-marker,.hover-cursor,.selection,.drag-readout').forEach(element=>element.remove());
+      const date=document.createElement('span');date.className='export-date';date.textContent=fullDate(exportDate);timeline.querySelector('.day-summary').append(date);
+      timeline.style.minHeight='870px';
+      layout.append(timeline);
+    }
+    if(hasEntries){
+      const daily=document.createElement('aside');daily.className='daily-card export-daily-card';
+      const heading=document.querySelector('.daily-card .aside-heading').cloneNode(true);heading.querySelector('h3').textContent='记录事件';
+      const list=$('entryList').cloneNode(true);list.classList.add('export-entry-list');daily.append(heading,list);
+      layout.append(daily);
+    }
+    page.append(section);
+  }
+  page.querySelectorAll('[id]').forEach(element=>element.removeAttribute('id'));
+  page.querySelectorAll('.focus-category-trigger svg,[data-export-category] svg').forEach(element=>element.remove());
+  page.querySelectorAll('.empty-add,.empty-chart').forEach(element=>{
+    const empty=document.createElement('span');empty.className='export-empty';empty.textContent='暂无记录';element.replaceWith(empty);
+  });
+  return page;
+}
+async function createTimelineExportPreview(modules,exportDate){
+  const width=1600,surface=buildTimelineExport(modules,exportDate);
+  Object.assign(surface.style,{position:'fixed',left:'-100000px',top:'0',width:`${width}px`,pointerEvents:'none'});
+  surface.setAttribute('aria-hidden','true');document.body.append(surface);
+  try{
+    if(document.fonts)await document.fonts.ready;
+    layoutTimelineLabels(surface,true);
+    const height=Math.ceil(surface.offsetHeight),content=surface.cloneNode(true);
+    Object.assign(content.style,{position:'relative',left:'0',top:'0',height:`${height}px`,overflow:'hidden'});
+    content.setAttribute('xmlns','http://www.w3.org/1999/xhtml');
+    const style=document.createElement('style');
+    style.textContent=[...document.styleSheets].flatMap(sheet=>{try{return [...sheet.cssRules].map(rule=>rule.cssText);}catch{return [];}}).join('\n');content.prepend(style);
+    const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('width',width);svg.setAttribute('height',height);
+    const foreign=document.createElementNS('http://www.w3.org/2000/svg','foreignObject');foreign.setAttribute('width','100%');foreign.setAttribute('height','100%');foreign.append(content);svg.append(foreign);
+    const image=new Image();image.src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(new XMLSerializer().serializeToString(svg));await image.decode();
+    return {image,width,height,date:exportDate};
+  }finally{surface.remove();}
+}
+exportForm.onsubmit=async event=>{
+  event.preventDefault();if(exportForm.getAttribute('aria-busy')==='true'||!exportPreviewData)return;
+  const {image,width,height,date}=exportPreviewData;
+  const button=$('timelineExportConfirm');button.disabled=true;button.textContent='正在生成…';exportForm.setAttribute('aria-busy','true');
+  try{
+    const scale=Math.min(2,Math.sqrt(32000000/(width*height)),16384/height),canvas=document.createElement('canvas');
+    canvas.width=Math.round(width*scale);canvas.height=Math.round(height*scale);
+    const context=canvas.getContext('2d');if(!context)throw new Error('浏览器无法创建图片');
+    context.scale(scale,scale);context.fillStyle='#fff';context.fillRect(0,0,width,height);context.drawImage(image,0,0,width,height);
+    const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));if(!blob)throw new Error('图片生成失败');
+    const url=URL.createObjectURL(blob),link=document.createElement('a');link.href=url;link.download=`WhereIsMyTime-${date}.png`;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+    $('timelineExportDialog').close();toast('图片已导出');
+  }catch(error){toast(`未能导出图片：${error.message}`);}
+  finally{button.textContent='导出 PNG';exportForm.removeAttribute('aria-busy');button.disabled=!exportPreviewData;}
+};
+$('timelineExportDialog').addEventListener('close',()=>{
+  ++exportPreviewVersion;cancelAnimationFrame(exportPreviewFrame);exportPreviewData=null;
+  $('timelineExportPreview').removeAttribute('src');$('timelineExportPreview').hidden=true;
+});
 for (const id of ['periodPrev', 'dayPrev']) $(id).innerHTML = icon('left');
 for (const id of ['periodNext', 'dayNext']) $(id).innerHTML = icon('right');
 $('dateChevron').innerHTML = icon('down');
@@ -590,7 +826,8 @@ document.addEventListener('click', event => {
   if (target.hasAttribute('data-focus-category')) {
     focusCategory = target.dataset.focusCategory || null; closeDropdown('focusDropdown',false);
     try { localStorage.setItem(FOCUS_KEY,JSON.stringify(focusCategory)); } catch { toast('关注分类未能保存，当前页面仍可使用'); }
-    renderOverview(); $('focusCategoryButton').focus({preventScroll:true}); return;
+    renderOverview();
+    ($('timelineExportDialog').open?exportForm.querySelector('[data-export-category="focus"]'):$('focusCategoryButton'))?.focus({preventScroll:true});return;
   }
   if (target.dataset.close) { $(target.dataset.close).close(); return; }
   if (target.dataset.dismissPopover) { closeDropdown(target.dataset.dismissPopover); return; }
@@ -633,7 +870,7 @@ document.addEventListener('click', event => {
   if (target.hasAttribute('data-filter')) { const id = target.dataset.filter || null, kind = target.dataset.filterKind; filter = filter?.kind === kind && filter.id === id ? null : { kind, id }; renderOverview(); return; }
   if (target.dataset.filterAll) { filter=null;closeDropdown('filterDropdown');renderOverview(); return; }
   if (target.hasAttribute('data-filter-choice')) { filter={kind:target.dataset.filterKind,id:target.dataset.filterChoice||null};closeDropdown('filterDropdown');renderOverview(); return; }
-  if (target.hasAttribute('data-year-category')) { yearCategory=target.dataset.yearCategory||null;closeDropdown('filterDropdown');renderOverview(); return; }
+  if (target.hasAttribute('data-year-category')) { yearCategory=target.dataset.yearCategory||null;closeDropdown('filterDropdown',false);renderOverview();if($('timelineExportDialog').open)exportForm.querySelector('[data-export-category="year"]')?.focus({preventScroll:true});return; }
 
   if (target.dataset.color) { modalColor = target.dataset.color; modalColorManual = true; renderColors(); return; }
   if (target.dataset.deleteEvent) {
