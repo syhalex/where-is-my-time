@@ -5,7 +5,7 @@ import {
   dateKey, addDays, totals, categoryTotals, saveCategory, deleteCategory,
   continuationRange, snapMinute, PALETTE, nextEventColor, randomColorOptions,
   colorDistance, heatColor, recordedMinutes, hexToHsv, hsvToHex,
-  pruneUnusedEvents, restoreEntry, OTHER_TIME_EVENT, statisticsEntries, categoryFocus
+  pruneUnusedEvents, pruneUnusedCategories, groupEntries, recentEvents, restoreEntry, OTHER_TIME_EVENT, statisticsEntries, categoryFocus
 } from '../core.js';
 
 const first = {date:'2026-10-29',start:540,end:600,name:'写作',color:'#89A996'};
@@ -168,4 +168,34 @@ test('visual picker and hexadecimal input share accurate HSV conversion',()=>{
 
 test('annual heat uses the selected category color with monotonic intensity',()=>{
   assert.equal(heatColor('#93A8CF',0),'#EEF1E8');assert.equal(heatColor('#93A8CF',1440),'#93A8CF');assert.notEqual(heatColor('#93A8CF',60),heatColor('#93A8CF',600));
+});
+
+test('empty categories are removed after pruning events and reassigning the last event',()=>{
+  const data=record(emptyData(),{categoryId:'study'}),clean=pruneUnusedCategories(data);
+  assert.deepEqual(clean.categories.map(c=>c.id),['study']);assert.equal(data.categories.length,4);
+  assert.deepEqual(pruneUnusedCategories({...clean,entries:[]}).categories,[]);
+  const moved=saveEntry(clean,{...first,id:clean.entries[0].id,categoryId:null});
+  assert.deepEqual(pruneUnusedCategories(moved).categories,[]);
+});
+
+test('undo restores an automatically pruned category and reuses a category with the same name',()=>{
+  const data=record(emptyData(),{categoryId:'study'}),blank=pruneUnusedCategories({...data,entries:[]});
+  const restored=restoreEntry(blank,data.entries[0],data.events[0],data.categories[0]);
+  assert.equal(restored.categories[0].id,'study');assert.equal(restored.events[0].categoryId,'study');
+  const recreated=saveCategory(blank,{name:'学习',color:'#93A8CF'});
+  const reused=restoreEntry(recreated,data.entries[0],data.events[0],data.categories[0]);
+  assert.equal(reused.categories.length,1);assert.equal(reused.events[0].categoryId,recreated.categories[0].id);
+});
+
+test('daily grouping sums separated ranges while retaining every editable record',()=>{
+  let data=record(emptyData());data=record(data,{name:'阅读',start:600,end:630});data=record(data,{start:700,end:725});
+  const groups=groupEntries([...data.entries].reverse());assert.equal(groups.length,2);
+  assert.equal(groups[0].minutes,85);assert.deepEqual(groups[0].entries.map(e=>e.start),[540,700]);
+  assert.equal(data.entries.length,3);
+});
+
+test('quick choices use selection order before record dates, with latest record as fallback',()=>{
+  let data=record(emptyData());data=record(data,{name:'阅读',date:'2026-10-30'});data=record(data,{name:'跑步',date:'2026-10-31'});
+  assert.deepEqual(recentEvents(data).map(e=>e.name),['跑步','阅读','写作']);
+  assert.deepEqual(recentEvents(data,[data.events[0].id,data.events[1].id]).map(e=>e.name),['写作','阅读','跑步']);
 });

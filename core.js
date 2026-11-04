@@ -109,11 +109,38 @@ export function pruneUnusedEvents(data) {
   const used = new Set(data.entries.map(entry => entry.eventId));
   return { ...data, events: data.events.filter(item => used.has(item.id)) };
 }
-export function restoreEntry(data, entry, savedEvent) {
+export function pruneUnusedCategories(data) {
+  const next = pruneUnusedEvents(data), used = new Set(next.events.map(item => item.categoryId));
+  return {...next, categories: next.categories.filter(category => used.has(category.id))};
+}
+export function groupEntries(entries) {
+  const groups = new Map();
+  for (const entry of [...entries].sort((a,b)=>a.start-b.start)) {
+    if (!groups.has(entry.eventId)) groups.set(entry.eventId, {eventId:entry.eventId,minutes:0,entries:[]});
+    const group = groups.get(entry.eventId); group.minutes += entry.end-entry.start; group.entries.push(entry);
+  }
+  return [...groups.values()];
+}
+export function recentEvents(data, selections = []) {
+  const ranks = new Map(selections.map((id,index)=>[id,index])), latest = new Map();
+  for (const entry of data.entries) {
+    const time = `${entry.date}T${timeText(entry.end)}`;
+    if (!latest.has(entry.eventId) || time > latest.get(entry.eventId)) latest.set(entry.eventId,time);
+  }
+  return [...data.events].sort((a,b)=>(ranks.get(a.id)??Infinity)-(ranks.get(b.id)??Infinity) || (latest.get(b.id)||'').localeCompare(latest.get(a.id)||'') || a.name.localeCompare(b.name,'zh-CN'));
+}
+export function restoreEntry(data, entry, savedEvent, savedCategory = null) {
   const next = structuredClone(data), restored = structuredClone(entry);
   if (!savedEvent || savedEvent.id !== entry.eventId) throw new Error('无法恢复事件');
   let item = getEvent(next,savedEvent.id) || next.events.find(item=>item.name===savedEvent.name);
-  if (!item) { item={...savedEvent,categoryId:getCategory(next,savedEvent.categoryId)?savedEvent.categoryId:null};next.events.push(item); }
+  if (!item) {
+    let category = getCategory(next,savedEvent.categoryId);
+    if (!category && savedCategory?.id === savedEvent.categoryId) {
+      category = next.categories.find(c=>c.name===savedCategory.name) || structuredClone(savedCategory);
+      if (!getCategory(next,category.id)) next.categories.push(category);
+    }
+    item={...savedEvent,categoryId:category?.id||null};next.events.push(item);
+  }
   restored.eventId=item.id;
   next.entries.push(restored);
   return validateData(next);

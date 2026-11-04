@@ -1,20 +1,25 @@
-import { PALETTE, OTHER_TIME_EVENT, emptyData, normalizeName, dateKey, fromKey, addDays, timeText, parseTime, durationText, validDate, entriesOn, getEvent, getCategory, totals, categoryTotals, statisticsEntries, categoryFocus, saveCategory, deleteCategory, continuationRange, snapMinute, nextEventColor, randomColorOptions, heatColor, hexToHsv, hsvToHex, recordedMinutes, pruneUnusedEvents, restoreEntry, saveEntry, renameEvent, validateData, readBackup, mergeData } from './core.js';
+import { PALETTE, OTHER_TIME_EVENT, emptyData, normalizeName, dateKey, fromKey, addDays, timeText, parseTime, durationText, validDate, entriesOn, getEvent, getCategory, totals, categoryTotals, statisticsEntries, categoryFocus, saveCategory, deleteCategory, continuationRange, snapMinute, nextEventColor, randomColorOptions, heatColor, hexToHsv, hsvToHex, recordedMinutes, pruneUnusedCategories, groupEntries, recentEvents, restoreEntry, saveEntry, renameEvent, validateData, readBackup, mergeData } from './core.js';
 import {STORAGE_KEY,loadStoredData,writeStoredData,listRecoverySources,preserveOriginal} from './storage.js';
 
 const $ = id => document.getElementById(id);
 const h = value => String(value).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const paths = {
   left: '<path d="m14 6-6 6 6 6"/>', right: '<path d="m10 6 6 6-6 6"/>', down: '<path d="m7 10 5 5 5-5"/>', plus: '<path d="M12 5v14M5 12h14"/>', close: '<path d="m6 6 12 12M18 6 6 18"/>',
-  events: '<path d="M3 4h8l10 10-7 7L3 10Z"/><circle cx="7.5" cy="8" r="1"/>', backup: '<path d="M12 3v12m-4-4 4 4 4-4M5 16v4h14v-4"/>', filter: '<path d="M4 5h16l-6 7v7l-4-2v-5Z"/>',
+  events: '<path d="M3 4h8l10 10-7 7L3 10Z"/><circle cx="7.5" cy="8" r="1"/>', backup: '<path d="M12 3v12m-4-4 4 4 4-4M5 16v4h14v-4"/>', archive: '<rect x="3" y="4" width="18" height="5" rx="1"/><path d="M5 9v11h14V9M10 13h4"/>', filter: '<path d="M4 5h16l-6 7v7l-4-2v-5Z"/>',
   expand: '<path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/>', collapse: '<path d="M3 8h5V3m8 0v5h5M8 21v-5H3m18 0h-5v5"/>',
   palette: '<circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 1 8 8c0 3-4 0-5 2s2 6-2 6"/><circle cx="8" cy="9" r=".8"/><circle cx="12" cy="7.5" r=".8"/><circle cx="16" cy="9" r=".8"/>',
   trash: '<path d="M4 6h16M9 6V3h6v3M6 6l1 15h10l1-15M10 10v7m4-7v7"/>', check: '<path d="m5 12 4 4L19 6"/>', clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>', calendar: '<rect x="4" y="5" width="16" height="16" rx="3"/><path d="M8 3v4m8-4v4M4 11h16m-11 4h2m3 0h2m-7 3h2"/>'
 };
 const icon = name => `<svg${name==='down'?' class="dropdown-chevron"':''} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] || ''}</svg>`;
+document.querySelectorAll('.select-chevron').forEach(element=>element.innerHTML=icon('down'));
+const RECENT_KEY = 'where-is-my-time.recent-events.v1';
+let recentSelections = [], draftCategories = [];
+const entryCategories = () => [...data.categories,...draftCategories.filter(c=>!getCategory(data,c.id))];
 const FOCUS_KEY = 'where-is-my-time.focus-category.v1';
-let data = emptyData(), rawStorage = null, persistenceLocked = false, selected = dateKey(new Date()), cursor = selected, view = 'month', filter = null;
+let data = emptyData(), rawStorage = null, persistenceLocked = false, selected = dateKey(new Date()), cursor = selected, view = 'day', filter = null;
 let editing = null, modalColor = PALETTE[0], imported = null, toastTimer, drag = null, confirmAction = null;
 let pickerCursor = selected, pickerMonthMode = false, categoryTarget = null, categoryFormColor = PALETTE[0], colorTarget = null, hoverTrack = null;
+const categoryEventIds = new Set();
 let aggregation = 'events', yearCategory = 'study', modalColorManual = false, modalMatchedName = null, modalCategoryId = null;
 let focusCategory = 'study', statisticalCache = null, calendarDay = dateKey(new Date()), midnightTimer;
 let entryPalette = [], categoryPalette = [], pickerPalette = [];
@@ -28,7 +33,8 @@ const monthHighlights = new Map();
 let startup;
 try { startup=loadStoredData(localStorage); }
 catch(error){startup={data:emptyData(),raw:null,locked:true,error:error.message};}
-data=startup.data;rawStorage=startup.raw;persistenceLocked=startup.locked;
+data=pruneUnusedCategories(startup.data);rawStorage=startup.raw;persistenceLocked=startup.locked;
+try { const ids=JSON.parse(localStorage.getItem(RECENT_KEY)||'[]');if(Array.isArray(ids))recentSelections=[...new Set(ids.filter(id=>typeof id==='string'))].slice(0,5000); } catch {}
 try {
   const stored = localStorage.getItem(FOCUS_KEY);
   if (stored !== null) { const id = JSON.parse(stored); if (id === null || typeof id === 'string') focusCategory = id; }
@@ -41,7 +47,7 @@ function toast(message, actionLabel, action) {
 }
 function commit(next, allowRecovery = false) {
   if (persistenceLocked && !allowRecovery) { toast('本地数据无法读取，请先导出备份，再导入有效备份'); return false; }
-  try { next=writeStoredData(localStorage,pruneUnusedEvents(next),{recovery:allowRecovery}); }
+  try { next=writeStoredData(localStorage,pruneUnusedCategories(next),{recovery:allowRecovery}); }
   catch(error){toast(`未能保存记录：${error.message}。请保留备份并使用恢复入口`);return false;}
   data = next; persistenceLocked = false;$('storageNotice').hidden=true;
   if (!validFilter()) filter = null;
@@ -201,6 +207,8 @@ function updateYearLayout() {
   chart.style.setProperty('--year-cell-size', `${cellPixels / ratio}px`); chart.style.setProperty('--year-cell-gap', `${gapPixels / ratio}px`);
 }
 function renderRecording() {
+  const list=$('entryList'),sameDate=list.dataset.date===selected;
+  const expanded=new Set(sameDate?[...list.querySelectorAll('.entry-group[open]')].map(group=>group.dataset.entryGroup):[]),scrollTop=sameDate?list.scrollTop:0;
   const d = fromKey(selected), records = entriesOn(data, selected), statsRecords = statisticalRecords().byDate.get(selected)||[], today = selected === dateKey(new Date());
   $('selectedDate').value = selected;
   $('selectedDateLabel').textContent = `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')} ${weekday(selected)}`;
@@ -208,7 +216,6 @@ function renderRecording() {
   const continuation = continuationRange(records);
   $('continueEntry').hidden = !continuation;
   if (continuation) $('continueEntry').innerHTML = `${icon('plus')}从 ${timeText(continuation[0])} 继续`;
-  $('entryCount').textContent = records.length;
   let bands = '';
   for (let band = 0; band < 4; band++) {
     const base = band * 360, recordsInBand = records.filter(e => e.start < base + 360 && e.end > base);
@@ -219,12 +226,24 @@ function renderRecording() {
   }
   $('timeBands').innerHTML = bands;
   queueTimelineLabels();
-  $('entryList').innerHTML = records.map(e => { const t = getEvent(data, e.eventId); return `<button class="entry-row" data-entry="${h(e.id)}" aria-label="编辑${h(t.name)} ${timeText(e.start)} — ${timeText(e.end)}"><span class="entry-stripe" style="background:${t.color}"></span><span class="entry-info"><span class="entry-name">${h(t.name)}</span><span class="entry-times">${timeText(e.start)} — ${timeText(e.end)}</span></span><span class="entry-duration">${durationText(e.end-e.start)}</span></button>`; }).join('') || `<div class="empty-records"><button class="empty-add" data-new="true">${icon('clock')}<span>添加第一条记录</span></button></div>`;
+  const groups = groupEntries(records);
+  $('entryCount').textContent = groups.length; $('entryCount').title = `${groups.length} 个事件，${records.length} 条记录`;
+  const rowContent = (item, ranges, minutes) => `<span class="entry-stripe" style="background:${item.color}"></span><span class="entry-info"><span class="entry-name">${h(item.name)}</span><span class="entry-times">${ranges}</span></span><span class="entry-duration">${durationText(minutes)}</span>`;
+  $('entryList').innerHTML = groups.map(group => {
+    const item=getEvent(data,group.eventId),entry=group.entries[0];
+    if(group.entries.length===1)return `<button class="entry-row" data-entry="${h(entry.id)}" aria-label="编辑${h(item.name)}">${rowContent(item,`${timeText(entry.start)} - ${timeText(entry.end)}`,group.minutes)}</button>`;
+    return `<details class="entry-group" data-entry-group="${h(group.eventId)}" ${expanded.has(group.eventId)?'open':''}><summary class="entry-row" aria-label="展开${h(item.name)}的 ${group.entries.length} 条记录">${rowContent(item,`${group.entries.length} 段记录`,group.minutes)}${icon('down')}</summary><div class="entry-group-records">${group.entries.map(e=>`<button class="entry-segment" data-entry="${h(e.id)}" aria-label="编辑${h(item.name)} ${timeText(e.start)} - ${timeText(e.end)}"><span>${timeText(e.start)} - ${timeText(e.end)}</span><span>${durationText(e.end-e.start)}</span></button>`).join('')}</div></details>`;
+  }).join('') || `<div class="empty-records"><button class="empty-add" data-new="true">${icon('clock')}<span>添加第一条记录</span></button></div>`;
+  list.dataset.date=selected;list.scrollTop=scrollTop;
   $('dayLegend').innerHTML = totals(records).map(([id, mins]) => legendItem(id, mins, false)).join('');
   const blank = Math.max(0,1440-recordedMinutes(statsRecords));
   $('dayDistribution').innerHTML = `<div class="distribution-bar">${totals(statsRecords).map(([id,mins])=>`<span style="flex:${mins};background:${getEvent(data,id).color}" title="${h(getEvent(data,id).name)} ${durationText(mins)}"></span>`).join('')}${blank?`<span style="flex:${blank};background:#f0f3e9"></span>`:''}</div><div class="distribution-row"><span>24 小时</span></div>`;
 }
 function render() { renderOverview(); renderRecording(); }
+function rememberEvent(id) {
+  recentSelections=[id,...recentSelections.filter(value=>value!==id&&getEvent(data,value))].slice(0,5000);
+  try { localStorage.setItem(RECENT_KEY,JSON.stringify(recentSelections)); } catch { /* Selection order still works for this page. */ }
+}
 function availableRange(base = 0, limit = 1440) {
   const records = entriesOn(data, selected); let point = base;
   for (const e of records) { if (e.end <= point) continue; if (e.start > point) return [point, Math.min(point + 30, e.start, limit)]; point = Math.max(point, e.end); if (point >= limit) break; }
@@ -236,9 +255,9 @@ function openNew(base, limit = 1440) {
   if (!range) { toast('这个时段已经记满了'); return; } openEntry(null, range[0], range[1]);
 }
 function openEntry(id=null,start=540,end=570) {
-  editing=id;const entry=id?data.entries.find(entry=>entry.id===id):null;
+  draftCategories=[];editing=id;const entry=id?data.entries.find(entry=>entry.id===id):null;
   if(id&&!entry)return;
-  if(entry){selected=entry.date;cursor=selected;render();start=entry.start;end=entry.end;}
+  if(entry){const changedDate=selected!==entry.date;selected=entry.date;cursor=selected;if(changedDate)render();else renderOverview();start=entry.start;end=entry.end;}
   const item=entry?getEvent(data,entry.eventId):null;
   modalCategoryId=item?.categoryId||null;
   modalColor=item?.color||freshColor();modalColorManual=false;modalMatchedName=item?.name||null;entryPalette=freshPalette(modalColor);
@@ -271,8 +290,8 @@ function renderColors() {
   renderEntryCategoryChoices();
 }
 function renderEntryCategoryChoices() {
-  if(modalCategoryId&&!getCategory(data,modalCategoryId))modalCategoryId=null;
-  $('entryCategoryChoices').innerHTML=[{id:'',name:'未分类'},...data.categories].map(item=>`<button type="button" class="entry-event-choice" data-entry-category="${h(item.id)}" aria-pressed="${(item.id||null)===modalCategoryId}">${item.color?`<i class="legend-dot" style="background:${item.color}"></i>`:''}${h(item.name)}</button>`).join('');
+  if(modalCategoryId&&!entryCategories().some(c=>c.id===modalCategoryId))modalCategoryId=null;
+  $('entryCategoryChoices').innerHTML=[{id:'',name:'未分类'},...entryCategories()].map(item=>`<button type="button" class="entry-event-choice" data-entry-category="${h(item.id)}" aria-pressed="${(item.id||null)===modalCategoryId}">${item.color?`<i class="legend-dot" style="background:${item.color}"></i>`:''}${h(item.name)}</button>`).join('');
 }
 $('entryCategoryChoices').addEventListener('click',event=>{
   const button=event.target.closest('[data-entry-category]');if(!button)return;
@@ -282,12 +301,12 @@ $('entryNewCategory').onclick=()=>openCategoryForm({kind:'entry'});
 function renderEntryEventChoices() {
   const container=$('entryEventChoices'),name=normalizeName($('entryName').value);
   container.hidden=!data.events.length;
-  container.innerHTML=sortedEvents().map(item=>`<button type="button" class="entry-event-choice" data-entry-event="${h(item.id)}" aria-pressed="${item.name===name}"><i class="legend-dot" style="background:${item.color}"></i>${h(item.name)}</button>`).join('');
+  container.innerHTML=recentEvents(data,recentSelections).map(item=>`<button type="button" class="entry-event-choice" data-entry-event="${h(item.id)}" aria-pressed="${item.name===name}"><i class="legend-dot" style="background:${item.color}"></i>${h(item.name)}</button>`).join('');
 }
 $('entryEventChoices').addEventListener('click',event=>{
   const button=event.target.closest('[data-entry-event]');if(!button)return;
   const item=getEvent(data,button.dataset.entryEvent);if(!item)return;
-  $('entryName').value=item.name;modalMatchedName=item.name;modalColor=item.color;modalColorManual=false;modalCategoryId=item.categoryId||null;
+  rememberEvent(item.id);$('entryName').value=item.name;modalMatchedName=item.name;modalColor=item.color;modalColorManual=false;modalCategoryId=item.categoryId||null;
   renderColors();$('entryName').focus({preventScroll:true});
 });
 function renderEventManager() {
@@ -297,7 +316,9 @@ function renderEventManager() {
 }
 
 function renderCategoryManager() {
-  $('categoryManager').innerHTML = data.categories.map(c => `<div class="manager-row" data-category="${h(c.id)}"><button class="manager-color-button" style="background:${c.color}" data-category-edit-color="${h(c.id)}" aria-label="修改分类${h(c.name)}的颜色"></button><input class="manager-name category-name" value="${h(c.name)}" maxlength="30" aria-label="修改分类${h(c.name)}的名称"><button class="manager-count manager-count-button" data-category-events="${h(c.id)}" aria-label="查看${h(c.name)}分类中的事件" aria-haspopup="dialog" aria-controls="categoryEventsDropdown" aria-expanded="false">${data.events.filter(item => item.categoryId === c.id).length} 个事件</button><button class="icon-button" data-delete-category="${h(c.id)}" aria-label="删除分类${h(c.name)}">${icon('trash')}</button></div>`).join('') + `<button class="button quiet category-new-button" id="managerNewCategory">${icon('plus')}新建分类</button>`;
+  $('categoryList').innerHTML = data.categories.map(c => `<div class="manager-row" data-category="${h(c.id)}"><button class="manager-color-button" style="background:${c.color}" data-category-edit-color="${h(c.id)}" aria-label="修改分类${h(c.name)}的颜色"></button><input class="manager-name category-name" value="${h(c.name)}" maxlength="30" aria-label="修改分类${h(c.name)}的名称"><button class="manager-count manager-count-button" data-category-events="${h(c.id)}" aria-label="查看${h(c.name)}分类中的事件" aria-haspopup="dialog" aria-controls="categoryEventsDropdown" aria-expanded="false">${data.events.filter(item => item.categoryId === c.id).length} 个事件</button><button class="icon-button" data-delete-category="${h(c.id)}" aria-label="删除分类${h(c.name)}">${icon('trash')}</button></div>`).join('');
+  $('managerNewCategory').disabled=!data.events.length;
+  $('managerNewCategory').innerHTML=icon('plus')+'新建分类';
 }
 function openCategoryEvents(id,anchor) {
   const category=getCategory(data,id);if(!category)return;
@@ -319,8 +340,24 @@ function renderCategoryFormColors() {
   paintSwatches('categoryFormColors', categoryPalette, categoryFormColor, 'data-category-color', '分类颜色', `<button type="button" class="custom-color" id="categoryCustomColor" aria-label="自选分类颜色">${icon('palette')}</button>`);
 }
 function openCategoryForm(target) {
+  $('categoryEventField').hidden=target.kind!=='manager';
+  categoryEventIds.clear();const firstEvent=sortedEvents()[0];if(firstEvent)categoryEventIds.add(firstEvent.id);
+  renderCategoryEventSelection();
   categoryTarget = target; categoryFormColor = freshColor(); categoryPalette = freshPalette(categoryFormColor); $('categoryName').value = ''; $('categoryError').hidden = true; renderCategoryFormColors(); $('categoryFormDialog').showModal(); requestAnimationFrame(() => $('categoryName').focus());
 }
+function renderCategoryEventSelection() {
+  const items=[...categoryEventIds].map(id=>getEvent(data,id)).filter(Boolean),names=items.map(item=>item.name).join('、');
+  $('categoryEventValue').innerHTML=items.length?`<i class="legend-dot" style="background:${items[0].color}"></i><span>${h(names)}</span>`:'选择事件';
+  $('categoryEventValue').title=names;
+  $('categoryEventChoices').querySelectorAll('[data-category-event]').forEach(button=>{
+    const selected=categoryEventIds.has(button.dataset.categoryEvent);
+    button.setAttribute('aria-selected',String(selected));button.querySelector('.checkmark').innerHTML=selected?icon('check'):'';
+  });
+}
+$('categoryEventButton').onclick=()=>{
+  $('categoryEventChoices').innerHTML=sortedEvents().map(item=>pickerOption(item,`data-category-event="${h(item.id)}"`,categoryEventIds.has(item.id))).join('');
+  openDropdown('categoryEventDropdown',$('categoryEventButton'),'start');
+};
 function openColor(target,color,anchor) {
   colorTarget=target;$('hexColor').value=color;$('hexPreview').style.background=color;$('colorError').hidden=true;
   pickerPalette=freshPalette(color);colorHsv=hexToHsv(color);paintColorPicker();
@@ -393,7 +430,7 @@ function openDropdown(id, anchor, align = 'end') {
   for (const otherId of dropdownAnchors.keys()) if (otherId !== id) closeDropdown(otherId, false);
   const host = anchor.closest('dialog') || document.body;
   if (panel.parentElement !== host) host.append(panel);
-  dropdownAnchors.set(id, anchor); anchor.setAttribute('aria-controls', id); anchor.setAttribute('aria-expanded', 'true'); anchor.setAttribute('aria-haspopup', ['filterDropdown','categoryDropdown','focusDropdown','exportRangeDropdown'].includes(id) ? 'listbox' : 'dialog');
+  dropdownAnchors.set(id, anchor); anchor.setAttribute('aria-controls', id); anchor.setAttribute('aria-expanded', 'true'); anchor.setAttribute('aria-haspopup', ['filterDropdown','categoryDropdown','categoryEventDropdown','focusDropdown','exportRangeDropdown'].includes(id) ? 'listbox' : 'dialog');
   if (id === 'dateDropdown' || id === 'colorDropdown') { panel.setAttribute('role', 'dialog'); panel.setAttribute('aria-modal', 'false'); }
   panel.querySelectorAll('.filter-choice').forEach(button => { button.setAttribute('role', 'option'); button.tabIndex = -1; });
   panel.style.maxHeight = `${Math.max(150, Math.min(420, innerHeight - 32))}px`; panel.showPopover();
@@ -433,9 +470,9 @@ function closeBackup() { $('backupMenu').hidden = true; $('backupButton').setAtt
 
 // Recovery reads old keys without modifying or removing them.
 let recoverySources=[];
-const recoveryButton=document.createElement('button');recoveryButton.id='recoverButton';recoveryButton.textContent='找回本机记录';$('backupMenu').append(recoveryButton);
+const recoveryButton=document.createElement('button');recoveryButton.id='recoverButton';recoveryButton.textContent='查询本机备份';$('backupMenu').append(recoveryButton);
 const recoveryDialog=document.createElement('dialog');recoveryDialog.id='recoveryDialog';recoveryDialog.className='wide-dialog';
-recoveryDialog.innerHTML='<div class="dialog-heading"><h2>找回本机记录</h2><button class="icon-button" data-close="recoveryDialog" aria-label="关闭"></button></div><div id="recoverySources"></div><p id="recoveryError" class="form-error" role="alert" hidden></p>';
+recoveryDialog.innerHTML='<div class="dialog-heading"><h2>查询本机备份</h2><button class="icon-button" data-close="recoveryDialog" aria-label="关闭"></button></div><div id="recoverySources"></div><p id="recoveryError" class="form-error" role="alert" hidden></p>';
 document.body.append(recoveryDialog);
 function findRecoverySources(){
   return listRecoverySources(localStorage);
@@ -465,7 +502,7 @@ $('storageRestore').onclick=()=>recoveryButton.click();
 $('storageExport').onclick=downloadBackup;
 function showStorageFailure(message){$('storageNotice').hidden=false;$('storageNoticeText').textContent=`数据未能启用，原始记录已保留。${message||'请使用恢复入口或导出原件'}`;}
 
-$('manageEvents').innerHTML = icon('events') + '时间与分类'; $('backupButton').innerHTML = icon('backup') + '备份'; $('addEntry').innerHTML = icon('plus') + '记录时间';
+$('manageEvents').innerHTML = icon('events') + '时间与分类'; $('backupButton').innerHTML = icon('archive') + '备份管理' + icon('down'); $('addEntry').innerHTML = icon('plus') + '记录时间';
 const timelineFullscreen=$('timelineFullscreenDialog'),timelineCard=$('timelineCard'),timelineFullscreenButton=$('timelineFullscreenButton');
 let timelinePlaceholder=null,timelinePageOverflow='';
 let timelineLabelsFrame=0,timelineLabelsWidth=0;
@@ -759,9 +796,17 @@ $('pickerNewCategory').onclick=()=>{closeDropdown('categoryDropdown');openCatego
 $('categoryForm').onsubmit=function submitCategory(event) {
   event.preventDefault();
   try {
-    const name=normalizeName($('categoryName').value),next=saveCategory(data,{name,color:categoryFormColor}),category=next.categories.find(item=>item.name===name);
+    const name=normalizeName($('categoryName').value),next=saveCategory({...data,categories:entryCategories()},{name,color:categoryFormColor}),category=next.categories.find(item=>item.name===name);
+    if(categoryTarget?.kind==='entry'){
+      if(!getCategory(data,category.id)&&!draftCategories.some(c=>c.id===category.id))draftCategories.push(category);
+      modalCategoryId=category.id;renderEntryCategoryChoices();$('categoryFormDialog').close();toast('分类将在保存记录时创建');return;
+    }
+    if(categoryTarget?.kind==='manager'){
+      if(!categoryEventIds.size)throw new Error('请至少选择一个事件');
+      for(const id of categoryEventIds){const item=getEvent(next,id);if(!item)throw new Error('所选事件已不存在，请重新选择');item.categoryId=category.id;}
+    }
     if(categoryTarget?.kind==='event'){const item=getEvent(next,categoryTarget.id);if(item)item.categoryId=category.id;}
-    if(commit(next)){if(categoryTarget?.kind==='entry'){modalCategoryId=category.id;renderEntryCategoryChoices();}renderEventManager();$('categoryFormDialog').close();toast('分类已创建');}
+    if(commit(next)){renderEventManager();$('categoryFormDialog').close();toast('分类已创建');}
   }catch(error){$('categoryError').textContent=error.message;$('categoryError').hidden=false;}
 };
 $('hexColor').oninput=function inputHex() {
@@ -805,15 +850,15 @@ $('entryForm').onsubmit = event => {
   try {
     const start = parseTime($('startTime').value.trim()), end = parseTime($('endTime').value.trim());
     if (start === null || end === null) throw new Error('请输入 5 分钟刻度的时间，例如 09:05，全天结束为 24:00');
-    const next=saveEntry(data,{id:editing,date:selected,start,end,name:$('entryName').value,color:modalColor,categoryId:modalCategoryId});
-    if (commit(next)) { $('entryDialog').close(); toast(editing ? '记录已更新' : '时间已记下'); }
+    const next=saveEntry({...data,categories:entryCategories()},{id:editing,date:selected,start,end,name:$('entryName').value,color:modalColor,categoryId:modalCategoryId});
+    if (commit(next)) { rememberEvent(data.events.find(item=>item.name===normalizeName($('entryName').value)).id);$('entryDialog').close(); toast(editing ? '记录已更新' : '时间已记下'); }
   } catch (error) { $('entryError').textContent = error.message; $('entryError').hidden = false; }
 };
 $('deleteEntry').onclick = () => {
   const removed = data.entries.find(e => e.id === editing); if (!removed) return;
-  const savedEvent = structuredClone(getEvent(data,removed.eventId));
+  const savedEvent = structuredClone(getEvent(data,removed.eventId)),savedCategory=structuredClone(getCategory(data,savedEvent.categoryId)||null);
   const next = { ...data, entries: data.entries.filter(e => e.id !== editing) };
-  if (commit(next)) { $('entryDialog').close(); toast('记录已删除', '撤销', () => { if (commit(restoreEntry(data, removed, savedEvent))) toast('记录已恢复'); }); }
+  if (commit(next)) { $('entryDialog').close(); toast('记录已删除', '撤销', () => { if (commit(restoreEntry(data, removed, savedEvent, savedCategory))) toast('记录已恢复'); }); }
 };
 $('confirmCancel').onclick = () => { confirmAction = null; $('confirmDialog').close(); };
 $('confirmAccept').onclick = () => { const action = confirmAction; confirmAction = null; $('confirmDialog').close(); action?.(); };
@@ -840,6 +885,11 @@ document.addEventListener('click', event => {
     if (target.dataset.refreshColors === 'entry') { entryPalette = freshPalette(modalColor); renderColors(); }
     else { categoryPalette = freshPalette(categoryFormColor); renderCategoryFormColors(); }
     return;
+  }
+  if (target.dataset.categoryEvent) {
+    const id=target.dataset.categoryEvent;if(!getEvent(data,id))return;
+    if(categoryEventIds.has(id))categoryEventIds.delete(id);else categoryEventIds.add(id);
+    renderCategoryEventSelection();return;
   }
   if (target.dataset.stepTime) { stepTime(target.dataset.stepTime, Number(target.dataset.step)); return; }
   if (target.dataset.managerTab) { setManagerTab(target.dataset.managerTab); return; }
@@ -1009,7 +1059,7 @@ window.addEventListener('storage', event => {
     return;
   }
   if (event.key !== STORAGE_KEY) return;
-  try { data = event.newValue ? validateData(JSON.parse(event.newValue)) : emptyData(); persistenceLocked = false;$('storageNotice').hidden=true; if (!validFilter()) filter = null; render(); if ($('eventsDialog').open) renderEventManager(); toast('已同步另一个页面的记录'); } catch { rawStorage=event.newValue;persistenceLocked=true;showStorageFailure('另一个页面保存了当前版本无法读取的数据，请刷新或导出原件'); }
+  try { data = pruneUnusedCategories(event.newValue ? validateData(JSON.parse(event.newValue)) : emptyData()); persistenceLocked = false;$('storageNotice').hidden=true; if (!validFilter()) filter = null; render(); if ($('eventsDialog').open) renderEventManager(); toast('已同步另一个页面的记录'); } catch { rawStorage=event.newValue;persistenceLocked=true;showStorageFailure('另一个页面保存了当前版本无法读取的数据，请刷新或导出原件'); }
 });
 function refreshCalendarDay() {
   const today = dateKey(new Date());
@@ -1020,6 +1070,9 @@ function refreshCalendarDay() {
 }
 window.addEventListener('focus',refreshCalendarDay);
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')refreshCalendarDay();});
+if(!persistenceLocked&&data.categories.length!==startup.data.categories.length){
+  try{data=writeStoredData(localStorage,data);}catch(error){toast(`空分类未能清理：${error.message}`);}
+}
 render();
 refreshCalendarDay();
 new ResizeObserver(entries=>{document.querySelector('.record-layout').style.setProperty('--timeline-height',`${Math.ceil(entries[0].borderBoxSize?.[0]?.blockSize||document.querySelector('.timeline-card').getBoundingClientRect().height)}px`);}).observe(document.querySelector('.timeline-card'));
