@@ -728,7 +728,7 @@ $('exportRangeDropdown').addEventListener('click',event=>{
 });
 function updateExportSelection(){
   const modules=new Set(new FormData(exportForm).getAll('modules')),version=++exportPreviewVersion;
-  exportPreviewData=null;$('timelineExportConfirm').disabled=true;cancelAnimationFrame(exportPreviewFrame);
+  exportPreviewData=null;$('timelineExportConfirm').disabled=true;$('timelineExportCopy').disabled=true;cancelAnimationFrame(exportPreviewFrame);
   const status=$('timelineExportStatus'),image=$('timelineExportPreview'),panel=image.parentElement;
   status.hidden=false;status.textContent=modules.size?'正在生成预览…':'选择要导出的模块';
   panel.setAttribute('aria-busy',String(!!modules.size));
@@ -738,7 +738,7 @@ function updateExportSelection(){
       const preview=await createTimelineExportPreview(modules,selected);
       if(version!==exportPreviewVersion||!$('timelineExportDialog').open)return;
       exportPreviewData=preview;image.src=preview.image.src;image.hidden=false;status.hidden=true;
-      $('timelineExportConfirm').disabled=exportForm.getAttribute('aria-busy')==='true';
+      $('timelineExportConfirm').disabled=$('timelineExportCopy').disabled=exportForm.getAttribute('aria-busy')==='true';
     }catch(error){
       if(version!==exportPreviewVersion)return;
       image.hidden=true;status.textContent=`无法生成预览：${error.message}`;
@@ -748,20 +748,15 @@ function updateExportSelection(){
 exportForm.addEventListener('change',updateExportSelection);
 function buildTimelineExport(modules,exportDate){
   const page=document.createElement('div');page.className=`timeline-export-surface${modules.size===1&&modules.has('timeline')?' export-timeline-only':''}`;
-  const sectionHeading=title=>{
-    const heading=document.createElement('div');heading.className='section-heading export-section-heading';
-    const name=document.createElement('h2');name.textContent=title;heading.append(name);
-    return heading;
-  };
   const summaryChoices=[['categories','.category-stat'],['focus','.focus-stat'],['days','.days-stat']].filter(([key])=>modules.has(key));
   const includeOverview=modules.has('overview')&&!(view==='year'&&modules.has('year'));
   const hasOverview=includeOverview||summaryChoices.length>0;
   if(modules.has('year')){
-    const section=document.createElement('section');section.append(sectionHeading('当前年视图'),buildExportYear());page.append(section);
+    const section=document.createElement('section');section.append(buildExportYear());page.append(section);
   }
   if(hasOverview){
     const section=document.createElement('section'),card=document.createElement('div');card.className='overview-card';
-    section.append(sectionHeading('时间总览'),card);
+    section.append(card);
     if(summaryChoices.length){
       const stats=document.createElement('div');stats.className='stats';stats.style.gridTemplateColumns=`repeat(${summaryChoices.length},minmax(0,1fr))`;
       summaryChoices.forEach(([kind])=>stats.append(buildExportStat(kind)));card.append(stats);
@@ -825,21 +820,42 @@ async function createTimelineExportPreview(modules,exportDate){
     return {image,width,height,date:exportDate};
   }finally{surface.remove();}
 }
-exportForm.onsubmit=async event=>{
-  event.preventDefault();if(exportForm.getAttribute('aria-busy')==='true'||!exportPreviewData)return;
-  const {image,width,height,date}=exportPreviewData;
-  const button=$('timelineExportConfirm');button.disabled=true;button.textContent='正在生成…';exportForm.setAttribute('aria-busy','true');
-  try{
+function exportPng(preview) {
+  if(preview.png)return preview.png;
+  preview.png=(async()=>{
+    const {image,width,height}=preview;
     const scale=Math.min(2,Math.sqrt(32000000/(width*height)),16384/height),canvas=document.createElement('canvas');
     canvas.width=Math.round(width*scale);canvas.height=Math.round(height*scale);
     const context=canvas.getContext('2d');if(!context)throw new Error('浏览器无法创建图片');
     context.scale(scale,scale);context.fillStyle='#fff';context.fillRect(0,0,width,height);context.drawImage(image,0,0,width,height);
-    const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));if(!blob)throw new Error('图片生成失败');
-    const url=URL.createObjectURL(blob),link=document.createElement('a');link.href=url;link.download=`WhereIsMyTime-${date}.png`;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
-    $('timelineExportDialog').close();toast('图片已导出');
-  }catch(error){toast(`未能导出图片：${error.message}`);}
-  finally{button.textContent='导出 PNG';exportForm.removeAttribute('aria-busy');button.disabled=!exportPreviewData;}
-};
+    const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));if(!blob)throw new Error('图片生成失败');return blob;
+  })().catch(error=>{preview.png=null;throw error;});
+  return preview.png;
+}
+async function exportImage(copy=false) {
+  if(exportForm.getAttribute('aria-busy')==='true'||!exportPreviewData)return;
+  if(copy&&(!navigator.clipboard?.write||!globalThis.ClipboardItem)){toast('当前浏览器不支持复制图片，请导出 PNG');return;}
+  const preview=exportPreviewData,button=$(copy?'timelineExportCopy':'timelineExportConfirm');
+  // Keep labels and opacity steady while preventing duplicate export actions.
+  for(const id of ['timelineExportConfirm','timelineExportCopy'])$(id).setAttribute('aria-disabled','true');
+  button.setAttribute('aria-busy','true');exportForm.setAttribute('aria-busy','true');
+  try{
+    // Give ClipboardItem the promise during the click so user activation is retained.
+    if(copy){await navigator.clipboard.write([new ClipboardItem({'image/png':exportPng(preview)})]);toast('图片已复制');}
+    else{
+      const blob=await exportPng(preview),url=URL.createObjectURL(blob),link=document.createElement('a');
+      link.href=url;link.download=`WhereIsMyTime-${preview.date}.png`;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+      $('timelineExportDialog').close();toast('图片已导出');
+    }
+  }catch(error){toast(`未能${copy?'复制':'导出'}图片：${error.message}${copy?'。可尝试导出 PNG':''}`);}
+  finally{
+    button.removeAttribute('aria-busy');exportForm.removeAttribute('aria-busy');
+    for(const id of ['timelineExportConfirm','timelineExportCopy'])$(id).removeAttribute('aria-disabled');
+    $('timelineExportConfirm').disabled=$('timelineExportCopy').disabled=!exportPreviewData;
+  }
+}
+exportForm.onsubmit=event=>{event.preventDefault();exportImage();};
+$('timelineExportCopy').onclick=()=>exportImage(true);
 $('timelineExportDialog').addEventListener('close',()=>{
   ++exportPreviewVersion;cancelAnimationFrame(exportPreviewFrame);exportPreviewData=null;
   $('timelineExportPreview').removeAttribute('src');$('timelineExportPreview').hidden=true;
