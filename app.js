@@ -1,24 +1,31 @@
-import { PALETTE, OTHER_TIME_EVENT, emptyData, normalizeName, dateKey, fromKey, addDays, timeText, parseTime, durationText, validDate, entriesOn, getEvent, getCategory, totals, categoryTotals, statisticsEntries, categoryFocus, saveCategory, deleteCategory, continuationRange, snapMinute, nextEventColor, randomColorOptions, heatColor, hexToHsv, hsvToHex, recordedMinutes, pruneUnusedCategories, groupEntries, recentEvents, restoreEntry, saveEntry, renameEvent, validateData, readBackup, mergeData } from './core.js';
+import { PALETTE, OTHER_TIME_EVENT, emptyData, normalizeName, dateKey, fromKey, addDays, timeText, parseTime, durationText, validDate, entriesOn, getEvent, getCategory, totals, categoryTotals, statisticsEntries, categoryFocus, saveCategory, deleteCategory, continuationRange, snapMinute, nextEventColor, randomColorOptions, heatColor, hexToHsv, hsvToHex, recordedMinutes, pruneUnusedCategories, groupEntries, recentEvents, queryDuration, restoreEntry, saveEntry, renameEvent, validateData, readBackup, mergeData } from './core.js';
 import {STORAGE_KEY,loadStoredData,writeStoredData,listRecoverySources,preserveOriginal} from './storage.js';
 
 const $ = id => document.getElementById(id);
 const h = value => String(value).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const paths = {
   left: '<path d="m14 6-6 6 6 6"/>', right: '<path d="m10 6 6 6-6 6"/>', down: '<path d="m7 10 5 5 5-5"/>', plus: '<path d="M12 5v14M5 12h14"/>', close: '<path d="m6 6 12 12M18 6 6 18"/>',
-  events: '<path d="M3 4h8l10 10-7 7L3 10Z"/><circle cx="7.5" cy="8" r="1"/>', backup: '<path d="M12 3v12m-4-4 4 4 4-4M5 16v4h14v-4"/>', archive: '<rect x="3" y="4" width="18" height="5" rx="1"/><path d="M5 9v11h14V9M10 13h4"/>', filter: '<path d="M4 5h16l-6 7v7l-4-2v-5Z"/>',
+  events: '<path d="M3 4h8l10 10-7 7L3 10Z"/><circle cx="7.5" cy="8" r="1"/>', backup: '<path d="M12 3v12m-4-4 4 4 4-4M5 16v4h14v-4"/>', archive: '<rect x="3" y="4" width="18" height="5" rx="1"/><path d="M5 9v11h14V9M10 13h4"/>', search: '<circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/>', filter: '<path d="M4 5h16l-6 7v7l-4-2v-5Z"/>',
   expand: '<path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/>', collapse: '<path d="M3 8h5V3m8 0v5h5M8 21v-5H3m18 0h-5v5"/>',
   palette: '<circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 1 8 8c0 3-4 0-5 2s2 6-2 6"/><circle cx="8" cy="9" r=".8"/><circle cx="12" cy="7.5" r=".8"/><circle cx="16" cy="9" r=".8"/>',
   trash: '<path d="M4 6h16M9 6V3h6v3M6 6l1 15h10l1-15M10 10v7m4-7v7"/>', check: '<path d="m5 12 4 4L19 6"/>', clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>', calendar: '<rect x="4" y="5" width="16" height="16" rx="3"/><path d="M8 3v4m8-4v4M4 11h16m-11 4h2m3 0h2m-7 3h2"/>'
 };
 const icon = name => `<svg${name==='down'?' class="dropdown-chevron"':''} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] || ''}</svg>`;
+// All minute inputs share the recording editor's field and stepper controls.
+document.querySelectorAll('[data-time-input]').forEach(field=>{
+  const {timeInput:id,timeLabel:label,timeStep:step}=field.dataset;
+  field.innerHTML=`<input id="${id}" type="text" inputmode="numeric" autocomplete="off" maxlength="5" required aria-label="${label}" data-time-step="${step}"><span class="time-steppers">${[1,-1].map(direction=>`<button type="button" data-step-time="${id}" data-step="${direction*Number(step)}" aria-label="${label}${direction>0?'增加':'减少'}${step}分钟"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${direction>0?'m5 9.5 3-3 3 3':'m5 6.5 3 3 3-3'}"/></svg></button>`).join('')}</span>`;
+});
 document.querySelectorAll('.select-chevron').forEach(element=>element.innerHTML=icon('down'));
+document.querySelectorAll('.date-icon').forEach(element=>element.innerHTML=icon('calendar'));
+$('querySearchClear').innerHTML=icon('close');document.querySelector('.search-icon').innerHTML=icon('search');
 const RECENT_KEY = 'where-is-my-time.recent-events.v1';
 let recentSelections = [], draftCategories = [];
 const entryCategories = () => [...data.categories,...draftCategories.filter(c=>!getCategory(data,c.id))];
 const FOCUS_KEY = 'where-is-my-time.focus-category.v1';
 let data = emptyData(), rawStorage = null, persistenceLocked = false, selected = dateKey(new Date()), cursor = selected, view = 'day', filter = null;
 let editing = null, modalColor = PALETTE[0], imported = null, toastTimer, drag = null, confirmAction = null;
-let pickerCursor = selected, pickerMonthMode = false, categoryTarget = null, categoryFormColor = PALETTE[0], colorTarget = null, hoverTrack = null;
+let pickerCursor = selected, pickerMonthMode = false, pickerTarget = 'record', categoryTarget = null, categoryFormColor = PALETTE[0], colorTarget = null, hoverTrack = null;
 const categoryEventIds = new Set();
 let aggregation = 'events', yearCategory = 'study', modalColorManual = false, modalMatchedName = null, modalCategoryId = null;
 let focusCategory = 'study', statisticalCache = null, calendarDay = dateKey(new Date()), midnightTimer;
@@ -239,7 +246,54 @@ function renderRecording() {
   const blank = Math.max(0,1440-recordedMinutes(statsRecords));
   $('dayDistribution').innerHTML = `<div class="distribution-bar">${totals(statsRecords).map(([id,mins])=>`<span style="flex:${mins};background:${getEvent(data,id).color}" title="${h(getEvent(data,id).name)} ${durationText(mins)}"></span>`).join('')}${blank?`<span style="flex:${blank};background:#f0f3e9"></span>`:''}</div><div class="distribution-row"><span>24 小时</span></div>`;
 }
-function render() { renderOverview(); renderRecording(); }
+function render() { renderOverview(); renderRecording(); if($('queryDialog').open){runQuery();renderQueryChoices();} }
+const queryEvents = new Set(), queryCategories = new Set();
+function renderQueryChoices() {
+  const search=normalizeName($('querySearch').value).toLocaleLowerCase();
+  const choices=(items,kind,selection)=>items.filter(item=>item.name.toLocaleLowerCase().includes(search)).map(item=>`<label class="query-choice"><input class="choice-input" type="checkbox" data-query-kind="${kind}" value="${h(item.id||'')}" ${selection.has(item.id||null)?'checked':''}><i class="legend-dot" style="background:${item.color}"></i><span>${h(item.name)}</span></label>`).join('')||'<span class="query-empty">没有匹配项</span>';
+  $('queryEvents').innerHTML=choices(sortedEvents(),'events',queryEvents);
+  $('queryCategories').innerHTML=choices([...data.categories,{id:null,name:'未分类',color:'#BEC7B5'}],'categories',queryCategories);
+  $('querySearchClear').hidden=!$('querySearch').value;
+}
+function setQueryDateTime(target,date,time) {
+  $(target).value=`${date}T${time}`;$(target+'Time').value=time;
+  $(target+'DateValue').textContent=date.replaceAll('-','/');
+}
+function syncQueryTime(id) {
+  const target=id==='queryStartTime'?'queryStart':'queryEnd';
+  $(target).value=`${$(target).value.slice(0,10)}T${$(id).value}`;runQuery();
+}
+function runQuery() {
+  // Drop filters whose events or categories were removed in another page.
+  for(const id of queryEvents)if(!getEvent(data,id))queryEvents.delete(id);
+  for(const id of queryCategories)if(id&&!getCategory(data,id))queryCategories.delete(id);
+  try {
+    const result=queryDuration(data,{start:$('queryStart').value,end:$('queryEnd').value,eventIds:[...queryEvents],categoryIds:[...queryCategories]});
+    const percent=minutes=>`${Number((result.total?minutes/result.total*100:0).toFixed(1))}%`;
+    const rows=(groups,mode)=>groups.map(([id,minutes])=>{const item=displayGroup(id,mode);return `<div class="query-result-row"><span><i class="legend-dot" style="background:${item.color}"></i>${h(item.name)}</span><span>${durationText(minutes)}</span><span>${percent(minutes)}</span></div>`;}).join('');
+    $('queryError').hidden=true;$('queryResults').hidden=false;
+    $('queryResults').innerHTML=`<div class="query-summary"><div><span>所选合计</span><strong>${durationText(result.minutes)}</strong></div><div><span>占全部记录</span><strong>${percent(result.minutes)}</strong></div><div><span>区间全部记录</span><strong>${durationText(result.total)}</strong></div></div>${result.count?`<div class="query-breakdowns"><section><h3>按事件</h3>${rows(result.events,'events')}</section><section><h3>按分类</h3>${rows(result.categories,'categories')}</section></div>`:'<p class="query-empty">此时间段内没有匹配的记录</p>'}`;
+  } catch(error) {$('queryError').textContent=error.message;$('queryError').hidden=false;$('queryResults').hidden=true;}
+}
+$('queryButton').onclick=()=>{
+  closeBackup();setQueryDateTime('queryStart',selected,'00:00');
+  setQueryDateTime('queryEnd',selected==='9999-12-31'?selected:addDays(selected,1),selected==='9999-12-31'?'23:59':'00:00');
+  queryEvents.clear();queryCategories.clear();$('querySearch').value='';renderQueryChoices();runQuery();$('queryDialog').showModal();
+};
+$('querySearch').oninput=renderQueryChoices;
+$('querySearchClear').onclick=()=>{$('querySearch').value='';renderQueryChoices();$('querySearch').focus();};
+$('queryForm').onsubmit=event=>{event.preventDefault();runQuery();};
+$('queryForm').addEventListener('change',event=>{
+  const input=event.target;
+  if(input.dataset.queryKind){
+    const isEvent=input.dataset.queryKind==='events',selection=isEvent?queryEvents:queryCategories,id=input.value||null;
+    if(input.checked){
+      selection.add(id);(isEvent?queryCategories:queryEvents).clear();
+      $('queryForm').querySelectorAll(`[data-query-kind="${isEvent?'categories':'events'}"]`).forEach(checkbox=>checkbox.checked=false);
+    }else selection.delete(id);
+  }
+  if(input.id!=='querySearch')runQuery();
+});
 function rememberEvent(id) {
   recentSelections=[id,...recentSelections.filter(value=>value!==id&&getEvent(data,value))].slice(0,5000);
   try { localStorage.setItem(RECENT_KEY,JSON.stringify(recentSelections)); } catch { /* Selection order still works for this page. */ }
@@ -384,22 +438,30 @@ function applyColor(color) {
   }
 }
 function renderDatePicker() {
-  const d = fromKey(pickerCursor), year = d.getFullYear(), month = d.getMonth();
+  const d = fromKey(pickerCursor), year = d.getFullYear(), month = d.getMonth(), activeDate=pickerTarget==='record'?selected:$(pickerTarget).value.slice(0,10);
   $('pickerTitle').innerHTML = `${year}年${month + 1}月${icon('down')}`; $('pickerTitle').setAttribute('aria-expanded', String(pickerMonthMode));
   $('pickerMonthPanel').hidden = !pickerMonthMode; $('pickerCalendar').hidden = pickerMonthMode; $('pickerYear').value = year;
   $('pickerMonths').innerHTML = Array.from({ length: 12 }, (_, i) => `<button type="button" data-picker-month="${i}" class="${i === month ? 'selected' : ''}">${i + 1}月</button>`).join('');
   const first = dateKey(new Date(year, month, 1, 12)), start = weekStart(first); let html = '';
   for (let i = 0; i < 42; i++) {
     const key = addDays(start, i), outside = fromKey(key).getMonth() !== month, today = key === dateKey(new Date());
-    html += `<button type="button" data-picker-date="${key}" class="picker-day${outside ? ' outside' : ''}${key === selected ? ' selected' : ''}${today ? ' today' : ''}" aria-label="${fullDate(key)}" aria-pressed="${key === selected}" ${validDate(key) ? '' : 'disabled'}>${fromKey(key).getDate()}</button>`;
+    html += `<button type="button" data-picker-date="${key}" class="picker-day${outside ? ' outside' : ''}${key === activeDate ? ' selected' : ''}${today ? ' today' : ''}" aria-label="${fullDate(key)}" aria-pressed="${key === activeDate}" ${validDate(key) ? '' : 'disabled'}>${fromKey(key).getDate()}</button>`;
   }
   $('pickerDays').innerHTML = html;
   $('pickerPrev').disabled = year === 1900 && month === 0; $('pickerNext').disabled = year === 9999 && month === 11;
   if ($('dateDropdown').matches(':popover-open')) positionDropdown('dateDropdown', 'start');
 }
-function openDatePicker() {
-  if ($('dateDropdown').matches(':popover-open')) { closeDropdown('dateDropdown'); return; }
-  pickerCursor = selected; pickerMonthMode = false; renderDatePicker(); openDropdown('dateDropdown', $('dateTrigger'), 'start');
+function openDatePicker(target='record',anchor=$('dateTrigger')) {
+  if ($('dateDropdown').matches(':popover-open')&&dropdownAnchors.get('dateDropdown')===anchor) { closeDropdown('dateDropdown'); return; }
+  // Mount in the invoking dialog before rendering; all date fields use this picker.
+  closeDropdown('dateDropdown',false);pickerTarget=target;
+  pickerCursor = target==='record'?selected:$(target).value.slice(0,10); pickerMonthMode = false;
+  renderDatePicker();openDropdown('dateDropdown',anchor,'start');
+}
+function choosePickerDate(key) {
+  if(pickerTarget==='record')selectDate(key);
+  else{setQueryDateTime(pickerTarget,key,$(pickerTarget+'Time').value);runQuery();}
+  closeDropdown('dateDropdown');
 }
 function closeDropdown(id, restoreFocus = true) {
   const panel = $(id); if (!panel) return;
@@ -451,7 +513,17 @@ function positionDropdown(id, align = 'end') {
   panel.style.top = `${Math.round(Math.max(12, top))}px`;
 }
 function pickerMove(amount, years = false) { const d = fromKey(pickerCursor); d.setDate(1); if (years) d.setFullYear(d.getFullYear() + amount); else d.setMonth(d.getMonth() + amount); const key = dateKey(d); if (validDate(key)) { pickerCursor = key; renderDatePicker(); } }
-function stepTime(id, step) { const value = parseTime($(id).value) ?? 0; $(id).value = timeText(Math.max(0, Math.min(id === 'startTime' ? 1435 : 1440, value + step))); updateDuration(); }
+function timeInputMinutes(id) {
+  const value=$(id).value.trim();
+  if(id==='startTime'||id==='endTime')return parseTime(value);
+  if(!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value))return null;
+  const [hour,minute]=value.split(':').map(Number);return hour*60+minute;
+}
+function stepTime(id, step) {
+  const value=timeInputMinutes(id)??0,limit=id==='endTime'?1440:id==='startTime'?1435:1439;
+  $(id).value=timeText(Math.max(0,Math.min(limit,value+step)));
+  if(id.startsWith('query'))syncQueryTime(id);else updateDuration();
+}
 function askConfirm(title, action) { $('confirmTitle').textContent = title; confirmAction = action; $('confirmDialog').showModal(); }
 function renderFilters() {
   if(view==='year'){
@@ -502,7 +574,7 @@ $('storageRestore').onclick=()=>recoveryButton.click();
 $('storageExport').onclick=downloadBackup;
 function showStorageFailure(message){$('storageNotice').hidden=false;$('storageNoticeText').textContent=`数据未能启用，原始记录已保留。${message||'请使用恢复入口或导出原件'}`;}
 
-$('manageEvents').innerHTML = icon('events') + '时间与分类'; $('backupButton').innerHTML = icon('archive') + '备份管理' + icon('down'); $('addEntry').innerHTML = icon('plus') + '记录时间';
+$('manageEvents').innerHTML = icon('events') + '时间与分类'; $('backupButton').innerHTML = icon('archive') + '备份管理' + icon('down'); $('queryButton').innerHTML=icon('search')+'查询'; $('addEntry').innerHTML = icon('plus') + '记录时间';
 const timelineFullscreen=$('timelineFullscreenDialog'),timelineCard=$('timelineCard'),timelineFullscreenButton=$('timelineFullscreenButton');
 let timelinePlaceholder=null,timelinePageOverflow='';
 let timelineLabelsFrame=0,timelineLabelsWidth=0;
@@ -782,13 +854,13 @@ document.querySelectorAll('[data-dismiss-popover].icon-button').forEach(button=>
 $('periodPrev').onclick = () => periodMove(-1); $('periodNext').onclick = () => periodMove(1);
 $('periodToday').onclick = () => selectDate(dateKey(new Date()));
 $('dayPrev').onclick = () => selectDate(addDays(selected, -1)); $('dayNext').onclick = () => selectDate(addDays(selected, 1));
-$('dateTrigger').onclick = openDatePicker;
+$('dateTrigger').onclick = () => openDatePicker();
 $('pickerPrev').onclick = () => pickerMove(-1); $('pickerNext').onclick = () => pickerMove(1);
 $('pickerYearPrev').onclick = () => pickerMove(-1, true); $('pickerYearNext').onclick = () => pickerMove(1, true);
 $('pickerTitle').onclick = () => { pickerMonthMode = !pickerMonthMode; renderDatePicker(); };
 $('pickerYear').oninput = () => { const value = $('pickerYear').value, year = Number(value); if (value.length === 4 && Number.isInteger(year) && year >= 1900 && year <= 9999) { const d = fromKey(pickerCursor); d.setFullYear(year); pickerCursor = dateKey(d); $('pickerTitle').innerHTML = `${year}年${d.getMonth() + 1}月${icon('down')}`; } };
 $('pickerYear').onchange = () => { const year = Number($('pickerYear').value); if (Number.isInteger(year) && year >= 1900 && year <= 9999) { const d = fromKey(pickerCursor); d.setFullYear(year); pickerCursor = dateKey(d); } renderDatePicker(); };
-$('pickerToday').onclick = () => { selectDate(dateKey(new Date())); closeDropdown('dateDropdown'); };
+$('pickerToday').onclick = () => choosePickerDate(dateKey(new Date()));
 $('addEntry').onclick = () => openNew();
 $('continueEntry').onclick = () => { const range = continuationRange(entriesOn(data, selected)); if (range) openEntry(null, ...range); };
 $('manageEvents').onclick = () => { renderEventManager(); $('eventsDialog').showModal(); };
@@ -835,8 +907,20 @@ $('confirmImport').onclick = () => {
     if (commit(next, true)) { $('importDialog').close(); imported = null; toast('备份已导入'); }
   } catch (error) { $('importError').textContent = error.message; $('importError').hidden = false; }
 };
-$('startTime').oninput = updateDuration; $('endTime').oninput = updateDuration;
-for (const id of ['startTime', 'endTime']) $(id).onblur = () => { const value = $(id).value.trim(); if (/^\d{3,4}$/.test(value)) $(id).value = `${value.padStart(4, '0').slice(0, 2)}:${value.slice(-2)}`; else if (/^\d:\d{2}$/.test(value)) $(id).value = `0${value}`; updateDuration(); };
+for (const id of ['startTime','endTime','queryStartTime','queryEndTime']) {
+  const input=$(id),update=()=>id.startsWith('query')?syncQueryTime(id):updateDuration();
+  input.oninput=update;
+  input.onblur=()=>{
+    const value=input.value.trim();
+    if(/^\d{3,4}$/.test(value))input.value=`${value.padStart(4,'0').slice(0,2)}:${value.slice(-2)}`;
+    else if(/^\d:\d{2}$/.test(value))input.value=`0${value}`;
+    update();
+  };
+  input.addEventListener('keydown',event=>{
+    if(!['ArrowUp','ArrowDown'].includes(event.key))return;
+    event.preventDefault();stepTime(id,(event.key==='ArrowUp'?1:-1)*Number(input.dataset.timeStep));
+  });
+}
 $('entryName').oninput=function inputEntryName() {
   const item=data.events.find(item=>item.name===normalizeName($('entryName').value));
   if(item&&item.name!==modalMatchedName){modalColor=item.color;modalColorManual=false;modalMatchedName=item.name;modalCategoryId=item.categoryId||null;renderColors();}
@@ -844,7 +928,6 @@ $('entryName').oninput=function inputEntryName() {
   renderEntryEventChoices();
   renderEntryCategoryChoices();
 };
-for (const id of ['startTime', 'endTime']) $(id).addEventListener('keydown', event => { if (['ArrowUp', 'ArrowDown'].includes(event.key)) { event.preventDefault(); stepTime(id, event.key === 'ArrowUp' ? 5 : -5); } });
 $('entryForm').onsubmit = event => {
   event.preventDefault();
   try {
@@ -886,6 +969,7 @@ document.addEventListener('click', event => {
     else { categoryPalette = freshPalette(categoryFormColor); renderCategoryFormColors(); }
     return;
   }
+  if (target.dataset.queryDate) { openDatePicker(target.dataset.queryDate,target); return; }
   if (target.dataset.categoryEvent) {
     const id=target.dataset.categoryEvent;if(!getEvent(data,id))return;
     if(categoryEventIds.has(id))categoryEventIds.delete(id);else categoryEventIds.add(id);
@@ -909,7 +993,7 @@ document.addEventListener('click', event => {
   if (target.dataset.categoryEditColor) { openColor({ kind: 'category', id: target.dataset.categoryEditColor }, getCategory(data, target.dataset.categoryEditColor).color, target); return; }
   if (target.dataset.hexColor) { $('hexColor').value=target.dataset.hexColor;colorHsv=hexToHsv(target.dataset.hexColor);paintColorPicker();return; }
   if (target.dataset.deleteCategory) { const id = target.dataset.deleteCategory, category = getCategory(data, id); askConfirm(`删除分类「${category.name}」？所属事件将改为未分类。`, () => { if (commit(deleteCategory(data, id))) { renderEventManager();toast('分类已删除'); } }); return; }
-  if (target.dataset.pickerDate) { selectDate(target.dataset.pickerDate); closeDropdown('dateDropdown'); return; }
+  if (target.dataset.pickerDate) { choosePickerDate(target.dataset.pickerDate); return; }
   if (target.hasAttribute('data-picker-month')) { const d = fromKey(pickerCursor); d.setDate(1); d.setMonth(Number(target.dataset.pickerMonth)); pickerCursor = dateKey(d); pickerMonthMode = false; renderDatePicker(); positionDropdown('dateDropdown', 'start'); return; }
   if (target.dataset.view) { view = target.dataset.view; cursor = selected; renderOverview(); return; }
   if (target.dataset.aggregation) { aggregation = target.dataset.aggregation; filter = null; renderOverview(); return; }

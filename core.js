@@ -129,6 +129,27 @@ export function recentEvents(data, selections = []) {
   }
   return [...data.events].sort((a,b)=>(ranks.get(a.id)??Infinity)-(ranks.get(b.id)??Infinity) || (latest.get(b.id)||'').localeCompare(latest.get(a.id)||'') || a.name.localeCompare(b.name,'zh-CN'));
 }
+function queryMinute(value) {
+  const match = /^(\d{4}-\d{2}-\d{2})T([01]\d|2[0-3]):([0-5]\d)$/.exec(value);
+  if (!match || !validDate(match[1])) throw new Error('请选择有效的起止日期与时间');
+  return Date.parse(`${match[1]}T00:00:00Z`)/60000 + Number(match[2])*60 + Number(match[3]);
+}
+export function queryDuration(data, {start, end, eventIds = [], categoryIds = []}) {
+  const from = queryMinute(start), to = queryMinute(end);
+  if (to <= from) throw new Error('结束时间须晚于开始时间');
+  const events = new Set(eventIds), categories = new Set(categoryIds), records = [];
+  if (events.size && categories.size) throw new Error('请选择事件或分类中的一组进行筛选');
+  let total = 0;
+  for (const entry of data.entries) {
+    const base = Date.parse(`${entry.date}T00:00:00Z`)/60000;
+    const left = Math.max(from,base+entry.start), right = Math.min(to,base+entry.end);
+    if (right <= left) continue;
+    total += right-left;
+    if (!events.size && !categories.size || events.has(entry.eventId) || categories.has(getEvent(data,entry.eventId)?.categoryId||null)) records.push({...entry,start:left-base,end:right-base});
+  }
+  const minutes = recordedMinutes(records);
+  return {minutes,total,share:total?minutes/total:0,count:records.length,events:totals(records),categories:categoryTotals(data,records)};
+}
 export function restoreEntry(data, entry, savedEvent, savedCategory = null) {
   const next = structuredClone(data), restored = structuredClone(entry);
   if (!savedEvent || savedEvent.id !== entry.eventId) throw new Error('无法恢复事件');

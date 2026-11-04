@@ -5,7 +5,7 @@ import {
   dateKey, addDays, totals, categoryTotals, saveCategory, deleteCategory,
   continuationRange, snapMinute, PALETTE, nextEventColor, randomColorOptions,
   colorDistance, heatColor, recordedMinutes, hexToHsv, hsvToHex,
-  pruneUnusedEvents, pruneUnusedCategories, groupEntries, recentEvents, restoreEntry, OTHER_TIME_EVENT, statisticsEntries, categoryFocus
+  pruneUnusedEvents, pruneUnusedCategories, groupEntries, recentEvents, queryDuration, restoreEntry, OTHER_TIME_EVENT, statisticsEntries, categoryFocus
 } from '../core.js';
 
 const first = {date:'2026-10-29',start:540,end:600,name:'写作',color:'#89A996'};
@@ -198,4 +198,26 @@ test('quick choices use selection order before record dates, with latest record 
   let data=record(emptyData());data=record(data,{name:'阅读',date:'2026-10-30'});data=record(data,{name:'跑步',date:'2026-10-31'});
   assert.deepEqual(recentEvents(data).map(e=>e.name),['跑步','阅读','写作']);
   assert.deepEqual(recentEvents(data,[data.events[0].id,data.events[1].id]).map(e=>e.name),['写作','阅读','跑步']);
+});
+
+test('queries clip arbitrary minute boundaries across dates and allow one filter group at a time',()=>{
+  let data=record(emptyData(),{categoryId:'study',start:1380,end:1440});
+  data=record(data,{date:'2026-10-30',start:0,end:60,categoryId:'study'});
+  data=record(data,{date:'2026-10-30',start:60,end:120,name:'运动',categoryId:'exercise'});
+  data=record(data,{date:'2026-10-30',start:120,end:180,name:'休息',categoryId:null});
+  const result=queryDuration(data,{start:'2026-10-29T23:17',end:'2026-10-30T02:19',categoryIds:['study','exercise']});
+  assert.equal(result.total,182);assert.equal(result.minutes,163);assert.equal(result.share,163/182);assert.equal(result.count,3);
+  assert.deepEqual(result.categories,[['study',103],['exercise',60]]);
+  const range={start:'2026-10-29T23:17',end:'2026-10-30T02:19'};
+  assert.equal(queryDuration(data,{...range,eventIds:[data.events[0].id,data.events[1].id]}).minutes,163);
+  assert.throws(()=>queryDuration(data,{...range,eventIds:[data.events[0].id],categoryIds:['study']}),/一组/);
+  assert.equal(queryDuration(data,{start:'2026-10-30T02:00',end:'2026-10-30T03:00',categoryIds:[null]}).minutes,60);
+});
+
+test('queries handle no matches, empty data, invalid dates and reversed ranges',()=>{
+  const range={start:'2026-10-29T00:00',end:'2026-10-30T00:00'},data=record(emptyData());
+  assert.equal(queryDuration(data,range).minutes,60);
+  assert.equal(queryDuration(data,{...range,eventIds:['missing']}).share,0);
+  assert.deepEqual(queryDuration(emptyData(),range),{minutes:0,total:0,share:0,count:0,events:[],categories:[]});
+  for(const changes of [{end:range.start},{start:range.end,end:range.start},{start:'2026-02-30T10:00'},{end:'2026-10-30T24:00'}])assert.throws(()=>queryDuration(data,{...range,...changes}));
 });
