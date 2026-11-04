@@ -198,7 +198,7 @@ export function saveEntry(data, input) {
   if (!Number.isInteger(input.start) || !Number.isInteger(input.end) || input.start < 0 || input.end > 1440 || input.start % 5 || input.end % 5 || input.end <= input.start) throw new Error('请输入有效时段，时间须为 5 分钟的倍数');
   if (!/^#[0-9a-fA-F]{6}$/.test(input.color)) throw new Error('请选择有效颜色');
   const overlap = conflict(data, input);
-  if (overlap) throw new Error(`${timeText(overlap.start)} — ${timeText(overlap.end)} 已有记录`);
+  if (overlap) throw new Error(`${timeText(overlap.start)} - ${timeText(overlap.end)} 已有记录`);
   const next = structuredClone(data);
   if (input.categoryId != null && !getCategory(next,input.categoryId)) throw new Error('所选分类不存在');
   let item = next.events.find(item=>item.name===name);

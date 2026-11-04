@@ -128,8 +128,8 @@ main{max-width:1192px;margin:42px auto 0}
 .week-day-label{display:flex;gap:5px;height:32px;width:100%;font-size:11px;flex-shrink:0}
 .week-day-label.selected{color:var(--green);font-weight:650}
 .week-track{position:relative;flex:1;background-image:linear-gradient(to bottom,#edf0e8 1px,transparent 1px);background-size:100% 25%;margin:0 7px}
-.week-entry{position:absolute;left:0;right:0;border-radius:3px;font-size:10px;padding:3px 5px;text-align:left;align-items:flex-start;justify-content:flex-start;min-height:3px;overflow:hidden}
-.week-entry span{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.week-entry{position:absolute;left:0;right:0;border-radius:3px;padding:0;min-height:0;overflow:hidden}
+.week-entry::before{content:"";position:absolute;inset:min(.5px,15%) 0;border-radius:inherit;background:var(--week-entry-color);pointer-events:none}
 .week-empty{position:absolute;inset:0;width:100%;cursor:pointer}
 .day-overview{min-height:267px;display:grid;grid-template-columns:220px 1fr;gap:40px;align-items:center;padding:10px 35px 20px}
 .donut{width:190px;height:190px;border-radius:50%;display:grid;place-content:center;position:relative;margin:auto}
@@ -174,7 +174,7 @@ dialog::backdrop{background:#283c2930;backdrop-filter:blur(3px)}
 .time-arrow{margin-bottom:13px;color:#b0b9a6;font-size:15px}
 .time-inputs output{font-size:11px;color:#819572;margin-left:auto;margin-bottom:13px;white-space:nowrap}
 .field-label{display:block;font-size:12px;font-weight:500;margin-bottom:9px}
-.name-input{border:1px solid #e2e7da;border-radius:9px;background:white;width:100%;padding:11px 12px;color:#3a4933;font-size:14px}
+.name-input{border:1px solid var(--control-border);border-radius:var(--control-radius);background:white;width:100%;padding:11px 12px;color:#3a4933;font-size:14px}
 .name-input::placeholder{color:#b4bdac}
 #entryName{margin-bottom:22px}
 .entry-event-choices{display:flex;flex-wrap:wrap;gap:8px;margin:-10px 0 22px;padding:2px;max-height:110px;overflow:auto}
@@ -187,14 +187,15 @@ dialog::backdrop{background:#283c2930;backdrop-filter:blur(3px)}
 .color-heading{display:flex;justify-content:space-between;align-items:center}
 .color-heading .field-label{margin-bottom:0}
 
-.dialog-actions{display:flex;align-items:center;justify-content:flex-end;gap:7px;border-top:1px solid #edf0e8;padding-top:18px;margin-top:5px}
+.dialog-actions{display:flex;align-items:center;justify-content:flex-end;gap:7px;padding-top:18px;margin-top:5px}
 .spacer{flex:1}
-.danger{color:#b0786c}
-.danger-solid{background:#ac6c5d;color:white}
+.danger{color:var(--danger)}
+.button.danger:hover,.icon-button.danger:hover{color:var(--danger-hover);background:var(--danger-soft)}
+.danger-solid{background:var(--danger);color:#fff}
+.danger-solid:hover{background:var(--danger-hover)}
 .form-error{font-size:12px;color:#a95c4d;background:#fcf1ed;border-radius:8px;padding:10px 12px;line-height:1.6;margin:0 0 15px}
 .wide-dialog{width:460px}
-.manager-row{display:flex;align-items:center;gap:8px;padding:10px 0;border-bottom:1px solid var(--border)}
-.manager-row:last-child{border-bottom:0}
+.manager-row{display:flex;align-items:center;gap:8px;padding:10px 0}
 .manager-name{border:0;min-width:0;width:100%;padding:5px;border-radius:5px;background:transparent;color:#4c5e42;font-size:13px}
 .manager-count{font-size:10px;color:#9da990;white-space:nowrap}
 .manager-row .icon-button{width:25px;height:25px}
@@ -207,8 +208,9 @@ dialog::backdrop{background:#283c2930;backdrop-filter:blur(3px)}
 .import-summary strong{font-size:25px;font-weight:500;margin-right:7px}
 .import-options{display:flex;flex-direction:column;gap:15px;padding:5px 0 25px}
 .import-options label{display:flex;gap:10px;align-items:center;font-size:13px}
-.import-options input{accent-color:var(--green)}
-.toast{position:fixed;bottom:28px;left:50%;transform:translateX(-50%);background:#314c38;color:#fff;padding:13px 19px;border-radius:11px;box-shadow:0 10px 30px #243b2b20;z-index:1000;display:flex;gap:16px;align-items:center;font-size:12px;max-width:calc(100vw - 32px)}
+.toast{position:fixed;inset:auto;bottom:28px;left:50%;margin:0;border:0;width:max-content;overflow:visible;transform:translateX(-50%);background:#314c38;color:#fff;padding:13px 19px;border-radius:11px;box-shadow:0 10px 30px #243b2b20;display:flex;gap:16px;align-items:center;font-size:12px;max-width:calc(100vw - 32px)}
+.toast[popover]:not(:popover-open){display:none}
+.toast::backdrop{background:transparent;backdrop-filter:none;pointer-events:none}
 .toast button{color:#d2e2ac;font-weight:600;white-space:nowrap}
 .toast span{line-height:1.5}
 #confirmTitle{font-size:17px;line-height:1.8}
@@ -311,7 +313,6 @@ h2{font-size:19px}
 .day-distribution{padding-top:17px}
 .week-chart{height:270px;grid-template-columns:25px repeat(7,minmax(0,1fr))}
 .week-track{margin:0 3px}
-.week-entry{padding:2px;font-size:8px}
 .week-day-label{font-size:10px;flex-direction:column;gap:2px;height:38px}
 .week-axis{padding-top:43px}
 .day-overview{grid-template-columns:1fr;padding:12px 10px 15px;gap:22px}
@@ -416,7 +417,7 @@ main{margin-bottom:42px}
 .time-inputs output{font-size:11px}
 .inline-button{font-size:10px;color:#7a9366;padding:4px 0}
 .inline-button:hover{color:#31594b}
-.entry-dialog{max-height:calc(100dvh - 32px);overflow:auto}
+.entry-dialog{max-height:calc(100dvh - 48px);overflow:auto}
 .manager-tabs{display:flex;gap:5px;background:#f3f6ed;border-radius:8px;padding:4px;margin-bottom:10px}
 .manager-tabs button{flex:1;border-radius:5px;padding:8px;font-size:12px;color:#92a082}
 .manager-tabs button[aria-selected=true]{background:#fff;color:#3b5730;box-shadow:0 2px 5px #243b2520}
@@ -448,7 +449,7 @@ main{margin-bottom:42px}
 .picker-day.outside{color:#bdc6b2}
 .picker-day.today{border-color:#c2d4ae}
 .picker-day.selected{background:#31594b;color:#fff;border-color:#31594b}
-.picker-footer{border-top:1px solid #edf1e6;margin-top:15px;padding-top:12px;display:flex;justify-content:space-between}
+.picker-footer{margin-top:15px;padding-top:12px;display:flex;justify-content:space-between}
 .picker-footer .button{font-size:11px;padding:6px 11px}
 .picker-year-control{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}
 .picker-year-control input{width:75px;padding:7px;text-align:center;font-size:15px;color:#506746;border:1px solid #e1e9d7;background:#f8faf4;border-radius:7px}
@@ -619,8 +620,7 @@ main{margin-bottom:42px}
 .usage-list{max-height:280px;overflow:auto}
 .usage-row{display:flex;align-items:center;gap:8px;min-height:32px;padding:6px 4px;font-size:12px}
 .usage-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.usage-duration{font-size:10px;color:#89977e;flex:none}
-.select-dropdown .category-new-button{margin:5px 0 0;border:0;border-top:1px solid #e9eee2;border-radius:0;padding-top:11px;padding-bottom:8px;min-height:34px;font-size:11px}
+.select-dropdown .category-new-button{margin:5px 0 0;border:0;border-radius:0;padding-top:11px;padding-bottom:8px;min-height:34px;font-size:11px}
 .date-dropdown{width:322px;padding:17px 18px 14px;border-radius:10px}
 .date-dropdown .picker-footer{margin-top:13px;padding-top:10px}
 .color-dropdown{width:310px;padding:16px}
@@ -656,10 +656,13 @@ main{margin-bottom:42px}
 
 /* Consistent scrollbars on the page, dialogs and floating pickers. */
 *{scrollbar-width:thin;scrollbar-color:#b9c7b3 transparent}
+/* Reserve the gutter before overflow so expanding content cannot shift columns. */
+html,dialog:not(.timeline-export-dialog),#entryList,#eventManager,#categoryList,.day-bars,.entry-event-choices,.entry-category-choices,.category-percentages,.query-choices,.query-breakdowns,.export-options-panel,.export-workspace{scrollbar-gutter:stable}
+.timeline-export-surface *,.export-widget-content *{scrollbar-gutter:auto}
 @supports selector(::-webkit-scrollbar){
   *{scrollbar-width:auto;scrollbar-color:auto}
   ::-webkit-scrollbar{width:8px;height:8px}
-  ::-webkit-scrollbar-track{background:transparent}
+  ::-webkit-scrollbar-track{background:transparent;margin-block:10px}
   ::-webkit-scrollbar-thumb{background:#b9c7b3;border:2px solid transparent;border-radius:999px;background-clip:padding-box;min-height:32px}
   ::-webkit-scrollbar-thumb:hover{background-color:#96ac8e}
   ::-webkit-scrollbar-button{display:none;width:0;height:0}
@@ -697,7 +700,6 @@ dialog[open]::backdrop{opacity:1}
 .timeline-fullscreen-dialog .hour-labels{font-size:12px;padding-bottom:10px}
 .timeline-fullscreen-dialog .time-track{height:clamp(48px,7vh,84px)}
 .timeline-fullscreen-dialog .time-block{font-size:14px;padding-left:10px;padding-right:10px}
-.timeline-fullscreen-dialog .time-block.narrow{padding:0}
 .timeline-fullscreen-dialog .time-block.narrow>span{visibility:visible}
 .timeline-fullscreen-dialog .time-block>span{white-space:normal;overflow-wrap:anywhere;text-overflow:clip;line-height:1.35;max-height:100%;min-width:0}
 .timeline-fullscreen-dialog .time-block.needs-callout>span{visibility:hidden}
@@ -737,10 +739,7 @@ dialog[open]::backdrop{opacity:1}
 .export-range-dropdown .filter-choice>span{margin-left:0;text-align:left;justify-self:start}
 .export-period-value{font-size:10px;color:#8a997e;white-space:nowrap}
 .export-range-dropdown .checkmark{margin-left:0;justify-self:end}
-.export-widget-option input{appearance:none;width:16px;height:16px;border:1px solid #bdcbb4;border-radius:4px;background:#fff;margin:0;flex:none;display:grid;place-content:center}
-.export-widget-option input:checked{background:var(--green);border-color:var(--green)}
-.export-widget-option input:checked::after{content:'';display:block;width:7px;height:4px;border-left:1.5px solid #fff;border-bottom:1.5px solid #fff;transform:translateY(-1px) rotate(-45deg)}
-.export-widget-option input:focus-visible{outline:2px solid #9eb58c;outline-offset:3px}
+
 .export-widget-content{pointer-events:none;user-select:none;min-width:0;max-height:190px;overflow:hidden;font-size:11px}
 .export-widget-content:is([data-export-widget=year],[data-export-widget=focus]){pointer-events:auto;user-select:auto}
 .export-widget-content [data-export-category]{cursor:pointer;border-radius:4px;padding:3px 4px;min-height:0}
@@ -782,7 +781,6 @@ dialog[open]::backdrop{opacity:1}
 .export-widget-content .week-chart{height:140px;grid-template-columns:16px repeat(7,minmax(0,1fr))}
 .export-widget-content .week-hour{font-size:6px}
 .export-widget-content .week-track{margin:0 2px}
-.export-widget-content .week-entry{padding:0;font-size:5px}
 .export-widget-content .day-overview{grid-template-columns:86px minmax(0,1fr);gap:12px;padding:0;min-height:100px}
 .export-widget-content .donut{width:86px;height:86px}
 .export-widget-content .donut:before{inset:10px}
@@ -848,7 +846,6 @@ dialog[open]::backdrop{opacity:1}
 .timeline-export-surface .hour-labels{font-size:12px;padding-bottom:10px}
 .timeline-export-surface .time-track{height:66px}
 .timeline-export-surface .time-block{font-size:14px;padding-left:10px;padding-right:10px}
-.timeline-export-surface .time-block.narrow{padding:0}
 .timeline-export-surface .time-block.narrow>span{visibility:visible}
 .timeline-export-surface .time-block>span{white-space:normal;overflow-wrap:anywhere;text-overflow:clip;line-height:1.35;max-height:100%;min-width:0}
 .timeline-export-surface .time-block.needs-callout>span{visibility:hidden}
@@ -874,6 +871,13 @@ dialog[open]::backdrop{opacity:1}
 .timeline-export-surface .export-empty{font-size:13px;color:#99a88b;display:block;padding:24px;text-align:center}
 @media(max-width:850px){.export-workspace{grid-template-columns:minmax(0,1fr) 230px;gap:16px}.timeline-export-dialog{padding:20px}.export-preview-panel{padding:12px}}
 @media(max-width:650px){.timeline-export-dialog{height:calc(100dvh - 32px);padding:18px}.export-workspace{display:flex;flex-direction:column;overflow:auto;gap:20px}.export-preview-panel{height:300px;min-height:300px;flex-shrink:0}.export-options-panel{overflow:visible;padding:0}.export-widget-choices{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+/* Keep dialog scrolling inset from rounded edges and prevent fractional overflow. */
+dialog:not(.timeline-fullscreen-dialog){max-height:calc(100dvh - 48px);overflow-x:hidden;overscroll-behavior:contain}
+dialog:not(.timeline-export-dialog):not(.timeline-fullscreen-dialog){overflow-y:auto}
+.entry-event-choices,.entry-category-choices{max-height:106px;overflow-x:hidden;padding-right:6px;align-content:flex-start}
+dialog .dialog-actions{border:0}
+dialog .manager-row{border:0}
 .category-event-field{margin-top:18px}
 .entry-group summary{list-style:none;cursor:pointer}
 .entry-group summary::-webkit-details-marker{display:none}
@@ -904,6 +908,7 @@ dialog[open]::backdrop{opacity:1}
 .query-result-row>span:not(:first-child){color:#8b987f;white-space:nowrap;text-align:right}
 .query-empty{color:#97a38c;font-size:12px;padding:12px 0}
 @media(max-width:550px){.query-range,.query-breakdowns{grid-template-columns:1fr}.query-summary{padding:15px;gap:10px}.query-summary strong{font-size:18px}.header-actions{gap:2px}.overview-controls{flex-wrap:wrap}.query-range{gap:8px}}
+
 /* PNG composition must have the same layout at every browser viewport size. */
 .timeline-export-surface{height:auto;max-height:none;overflow:visible}
 .timeline-export-surface>section{flex:0 0 auto;min-height:min-content}
@@ -922,7 +927,9 @@ dialog[open]::backdrop{opacity:1}
 .timeline-export-surface .entry-group:not([open])>summary{display:flex}
 .timeline-export-surface .entry-info{min-width:0}
 .timeline-export-surface .entry-times{white-space:normal}
+
 .timeline-export-surface .legend{max-height:none;overflow:visible}
+
 /* Shared input and selection controls across dialogs and pickers. */
 .choice-input{appearance:none;box-sizing:border-box;cursor:pointer;width:16px;height:16px;border:1px solid #bdcbb4;border-radius:4px;background:#fff;margin:0;flex:none;display:grid;place-content:center}
 .choice-input:checked{background:var(--green);border-color:var(--green)}
@@ -960,4 +967,7 @@ dialog[open]::backdrop{opacity:1}
 .query-choice{border-radius:5px;color:#4b613e;transition:background .15s}
 .query-choice:hover{background:#f4f7ee}
 .query-choice:has(input:checked){background:var(--selection-background);color:#3c5a30}
+.dropdown{border-color:#dfe7d7;border-radius:9px;box-shadow:0 5px 18px #283d2412;padding:5px}
+.dropdown button{min-height:32px;padding:7px 10px;border-radius:5px;font-size:12px;color:#4b613e}
+.dropdown button:hover{background:#f4f7ee}
 @media(max-width:700px){.query-range{grid-template-columns:1fr}}

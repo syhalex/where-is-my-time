@@ -47,11 +47,24 @@ try {
   if (stored !== null) { const id = JSON.parse(stored); if (id === null || typeof id === 'string') focusCategory = id; }
 } catch { /* Keep the default category if the saved preference cannot be read. */ }
 
-function toast(message, actionLabel, action) {
-  clearTimeout(toastTimer); $('toast').innerHTML = `<span>${h(message)}</span>${actionLabel ? `<button>${h(actionLabel)}</button>` : ''}`; $('toast').hidden = false;
-  if (action) $('toast').querySelector('button').onclick = () => { $('toast').hidden = true; try { action(); } catch (error) { toast(error.message); } };
-  toastTimer = setTimeout(() => { $('toast').hidden = true; }, action ? 9000 : 5000);
+function hideToast() {
+  const notice=$('toast');if(notice.matches(':popover-open'))notice.hidePopover();notice.hidden=true;
 }
+function raiseToast() {
+  const notice=$('toast');if(notice.hidden)return;
+  // Manual popovers share the browser's top layer with modal dialogs.
+  // Keep the notice inside the active dialog so its actions stay interactive.
+  const host=document.activeElement?.closest('dialog[open]')||[...document.querySelectorAll('dialog[open]')].at(-1)||document.body;
+  if(notice.matches(':popover-open'))notice.hidePopover();
+  if(notice.parentElement!==host)host.append(notice);
+  notice.showPopover();
+}
+function toast(message, actionLabel, action) {
+  clearTimeout(toastTimer); $('toast').innerHTML = `<span>${h(message)}</span>${actionLabel ? `<button type="button">${h(actionLabel)}</button>` : ''}`; $('toast').hidden = false;
+  if (action) $('toast').querySelector('button').onclick = () => { hideToast(); try { action(); } catch (error) { toast(error.message); } };
+  raiseToast();toastTimer = setTimeout(hideToast, action ? 9000 : 5000);
+}
+for(const name of ['toggle','close'])document.addEventListener(name,event=>{if(event.target instanceof HTMLDialogElement)raiseToast();},true);
 function commit(next, allowRecovery = false) {
   if (persistenceLocked && !allowRecovery) { toast('本地数据无法读取，请先导出备份，再导入有效备份'); return false; }
   try { next=writeStoredData(localStorage,pruneUnusedCategories(next),{recovery:allowRecovery}); }
@@ -133,7 +146,7 @@ function renderOverview() {
   document.querySelectorAll('[data-aggregation]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.aggregation === aggregation)));
   let title = `${d.getFullYear()}年${d.getMonth() + 1}月`;
   if (view === 'year') title = `${d.getFullYear()}年`;
-  if (view === 'week') { const a = fromKey(first), b = fromKey(addDays(last, -1)); title = a.getFullYear() === b.getFullYear() ? `${a.getFullYear()}年 ${a.getMonth() + 1}/${a.getDate()} — ${b.getMonth() + 1}/${b.getDate()}` : `${a.getFullYear()}/${a.getMonth() + 1}/${a.getDate()} — ${b.getFullYear()}/${b.getMonth() + 1}/${b.getDate()}`; }
+  if (view === 'week') { const a = fromKey(first), b = fromKey(addDays(last, -1)); title = a.getFullYear() === b.getFullYear() ? `${a.getFullYear()}年 ${a.getMonth() + 1}/${a.getDate()} - ${b.getMonth() + 1}/${b.getDate()}` : `${a.getFullYear()}/${a.getMonth() + 1}/${a.getDate()} - ${b.getFullYear()}/${b.getMonth() + 1}/${b.getDate()}`; }
   if (view === 'day') title = `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`;
   $('periodTitle').textContent = title;
   $('stats').innerHTML=categoryStatMarkup(entries)+focusStatMarkup(fullPeriodEntries())+daysStatMarkup(entries);
@@ -171,7 +184,7 @@ function renderWeek() {
   for (let i = 0; i < 7; i++) {
     const key = addDays(start, i), records = filteredEntries(entriesOn(data, key));
     html += `<div class="week-column"><button class="week-day-label${key === selected ? ' selected' : ''}" data-date="${key}">${weekday(key)}<span>${fromKey(key).getDate()}${key === dateKey(new Date()) ? '<i class="day-selected-badge"></i>' : ''}</span></button><div class="week-track"><button class="week-empty" data-date="${key}" aria-label="选择${fullDate(key)}"></button>`;
-    html += records.map(e => { const item = getEvent(data,e.eventId), t=aggregation==='categories'?displayGroup(item.categoryId,'categories'):item; return `<button class="week-entry" data-entry="${h(e.id)}" style="top:${e.start / 1440 * 100}%;height:${(e.end - e.start) / 1440 * 100}%;background:${entryBackground(e,aggregation)}" title="${h(t.name)} ${aggregation === 'categories' ? h(item.name) + ' ' : ''}${timeText(e.start)} — ${timeText(e.end)}" aria-label="编辑${h(item.name)} ${timeText(e.start)} — ${timeText(e.end)}"><span>${e.end - e.start >= 60 ? h(t.name) : ''}</span></button>`; }).join('');
+    html += records.map(e => { const item = getEvent(data,e.eventId), t=aggregation==='categories'?displayGroup(item.categoryId,'categories'):item; return `<button class="week-entry" data-entry="${h(e.id)}" style="top:${e.start / 1440 * 100}%;height:${(e.end - e.start) / 1440 * 100}%;--week-entry-color:${entryBackground(e,aggregation)}" title="${h(t.name)} ${aggregation === 'categories' ? h(item.name) + ' ' : ''}${timeText(e.start)} - ${timeText(e.end)}" aria-label="编辑${h(item.name)} ${timeText(e.start)} - ${timeText(e.end)}"></button>`; }).join('');
     html += '</div></div>';
   }
   $('overview').innerHTML = html + '</div>';
@@ -227,7 +240,7 @@ function renderRecording() {
   for (let band = 0; band < 4; band++) {
     const base = band * 360, recordsInBand = records.filter(e => e.start < base + 360 && e.end > base);
     bands += `<div class="band"><div class="band-heading"><span class="band-label">${['凌晨', '上午', '下午', '晚间'][band]}</span></div><div class="hour-labels">${Array.from({ length: 7 }, (_, i) => `<span>${timeText(base + i * 60)}</span>`).join('')}</div><div class="time-track" data-base="${base}" tabindex="0" role="group" aria-label="${timeText(base)}至${timeText(base + 360)}，拖选时间或按回车添加记录">`;
-    bands += recordsInBand.map(e => { const t = getEvent(data,e.eventId), start = Math.max(base, e.start), end = Math.min(base + 360, e.end), width = (end - start) / 360 * 100; return `<button class="time-block${width < 8 ? ' narrow' : ''}" data-entry="${h(e.id)}" style="left:${(start - base) / 360 * 100}%;width:${width}%;background:${entryBackground(e)};--block-color:${t.color}" title="${h(t.name)} ${timeText(e.start)} — ${timeText(e.end)}" aria-label="编辑${h(t.name)} ${timeText(e.start)} — ${timeText(e.end)}"><span>${h(t.name)}</span></button>`; }).join('');
+    bands += recordsInBand.map(e => { const t = getEvent(data,e.eventId), start = Math.max(base, e.start), end = Math.min(base + 360, e.end), width = (end - start) / 360 * 100; return `<button class="time-block${width < 8 ? ' narrow' : ''}" data-entry="${h(e.id)}" style="left:${(start - base) / 360 * 100}%;width:${width}%;background:${entryBackground(e)};--block-color:${t.color}" title="${h(t.name)} ${timeText(e.start)} - ${timeText(e.end)}" aria-label="编辑${h(t.name)} ${timeText(e.start)} - ${timeText(e.end)}"><span>${h(t.name)}</span></button>`; }).join('');
     if (continuation && continuation[0] >= base && continuation[0] < base + 360) bands += `<button class="continue-marker${continuation[0] - base > 310 ? ' marker-edge' : ''}" data-continue="${continuation[0]}" style="left:${(continuation[0] - base) / 360 * 100}%" aria-label="从${timeText(continuation[0])}继续记录"><span class="boundary-stem"></span><span class="boundary-label">${timeText(continuation[0])}${icon('plus')}</span></button>`;
     bands += '</div></div>';
   }
@@ -365,19 +378,19 @@ $('entryEventChoices').addEventListener('click',event=>{
 });
 function renderEventManager() {
   const counts = new Map(); data.entries.forEach(e => counts.set(e.eventId, (counts.get(e.eventId) || 0) + 1));
-  $('eventManager').innerHTML = sortedEvents().map(t => `<div class="manager-row" data-event="${h(t.id)}"><button class="manager-color-button" style="background:${t.color}" data-event-color="${h(t.id)}" aria-label="修改${h(t.name)}的颜色"></button><div class="manager-details"><input class="manager-name" value="${h(t.name)}" maxlength="80" aria-label="修改事件名称"><button class="category-assignment" data-assign-category="${h(t.id)}"><i style="background:${getCategory(data, t.categoryId)?.color || '#BEC7B5'}"></i>${h(getCategory(data, t.categoryId)?.name || '未分类')}${icon('down')}</button></div><span class="manager-count">${counts.get(t.id) || 0} 条</span><button class="icon-button" data-delete-event="${h(t.id)}" aria-label="删除事件${h(t.name)}">${icon('trash')}</button></div>`).join('') || '<div class="empty-events">还没有事件</div>';
+  $('eventManager').innerHTML = sortedEvents().map(t => `<div class="manager-row" data-event="${h(t.id)}"><button class="manager-color-button" style="background:${t.color}" data-event-color="${h(t.id)}" aria-label="修改${h(t.name)}的颜色"></button><div class="manager-details"><input class="manager-name" value="${h(t.name)}" maxlength="80" aria-label="修改事件名称"><button class="category-assignment" data-assign-category="${h(t.id)}"><i style="background:${getCategory(data, t.categoryId)?.color || '#BEC7B5'}"></i>${h(getCategory(data, t.categoryId)?.name || '未分类')}${icon('down')}</button></div><span class="manager-count">${counts.get(t.id) || 0} 条</span><button class="icon-button danger" data-delete-event="${h(t.id)}" aria-label="删除事件${h(t.name)}">${icon('trash')}</button></div>`).join('') || '<div class="empty-events">还没有事件</div>';
   renderCategoryManager();
 }
 
 function renderCategoryManager() {
-  $('categoryList').innerHTML = data.categories.map(c => `<div class="manager-row" data-category="${h(c.id)}"><button class="manager-color-button" style="background:${c.color}" data-category-edit-color="${h(c.id)}" aria-label="修改分类${h(c.name)}的颜色"></button><input class="manager-name category-name" value="${h(c.name)}" maxlength="30" aria-label="修改分类${h(c.name)}的名称"><button class="manager-count manager-count-button" data-category-events="${h(c.id)}" aria-label="查看${h(c.name)}分类中的事件" aria-haspopup="dialog" aria-controls="categoryEventsDropdown" aria-expanded="false">${data.events.filter(item => item.categoryId === c.id).length} 个事件</button><button class="icon-button" data-delete-category="${h(c.id)}" aria-label="删除分类${h(c.name)}">${icon('trash')}</button></div>`).join('');
+  $('categoryList').innerHTML = data.categories.map(c => `<div class="manager-row" data-category="${h(c.id)}"><button class="manager-color-button" style="background:${c.color}" data-category-edit-color="${h(c.id)}" aria-label="修改分类${h(c.name)}的颜色"></button><input class="manager-name category-name" value="${h(c.name)}" maxlength="30" aria-label="修改分类${h(c.name)}的名称"><button class="manager-count manager-count-button" data-category-events="${h(c.id)}" aria-label="查看${h(c.name)}分类中的事件" aria-haspopup="dialog" aria-controls="categoryEventsDropdown" aria-expanded="false">${data.events.filter(item => item.categoryId === c.id).length} 个事件</button><button class="icon-button danger" data-delete-category="${h(c.id)}" aria-label="删除分类${h(c.name)}">${icon('trash')}</button></div>`).join('');
   $('managerNewCategory').disabled=!data.events.length;
   $('managerNewCategory').innerHTML=icon('plus')+'新建分类';
 }
 function openCategoryEvents(id,anchor) {
   const category=getCategory(data,id);if(!category)return;
-  const spent=new Map(totals(data.entries));$('categoryEventsTitle').textContent=category.name;
-  $('categoryEventList').innerHTML=sortedEvents().filter(item=>item.categoryId===id).map(item=>`<div class="usage-row" role="listitem"><i class="legend-dot" style="background:${item.color}"></i><span class="usage-name">${h(item.name)}</span><span class="usage-duration">${durationText(spent.get(item.id)||0)}</span></div>`).join('')||'<div class="empty-events">暂无事件</div>';
+  $('categoryEventsTitle').textContent=category.name;
+  $('categoryEventList').innerHTML=sortedEvents().filter(item=>item.categoryId===id).map(item=>`<div class="usage-row" role="listitem"><i class="legend-dot" style="background:${item.color}"></i><span class="usage-name">${h(item.name)}</span></div>`).join('')||'<div class="empty-events">暂无事件</div>';
   openDropdown('categoryEventsDropdown',anchor,'start');
 }
 function setManagerTab(tabName) {
@@ -553,7 +566,7 @@ recoveryButton.onclick=()=>{
   closeBackup();$('recoveryError').hidden=true;
   try{recoverySources=findRecoverySources();$('recoverySources').innerHTML=recoverySources.map((source,index)=>{
     const dates=(source.converted?.entries||[]).map(entry=>entry.date).sort();
-    return `<div class="manager-row"><div class="manager-details"><strong>${source.converted?`${source.converted.entries.length} 条记录`:'原始数据'}</strong><p>${h(dates.length?`${dates[0]} — ${dates.at(-1)}`:source.error||'空备份')}</p><p>${h(source.key)}</p></div><button class="button quiet small" data-export-recovery="${index}">保留原件</button><button class="button primary small" data-recover-source="${index}" ${source.converted?'':'disabled'}>恢复</button></div>`;
+    return `<div class="manager-row"><div class="manager-details"><strong>${source.converted?`${source.converted.entries.length} 条记录`:'原始数据'}</strong><p>${h(dates.length?`${dates[0]} - ${dates.at(-1)}`:source.error||'空备份')}</p><p>${h(source.key)}</p></div><button class="button quiet small" data-export-recovery="${index}">保留原件</button><button class="button primary small" data-recover-source="${index}" ${source.converted?'':'disabled'}>恢复</button></div>`;
   }).join('')||'<p>此地址未找到旧记录。</p>';recoveryDialog.showModal();}catch(error){toast(error.message);}
 };
 recoveryDialog.addEventListener('click',event=>{
@@ -588,8 +601,9 @@ function layoutTimelineLabels(card=timelineCard,expanded=timelineFullscreen.open
     const track=band.querySelector('.time-track'),width=track.clientWidth;
     if(!width)continue;
     const overflow=blocks.filter(block=>{
-      const text=block.querySelector('span');
-      return block.clientWidth<32||text.scrollWidth>text.clientWidth+1||text.scrollHeight>Math.min(text.clientHeight,block.clientHeight)+1;
+      const text=block.querySelector('span'),style=getComputedStyle(block);
+      const availableWidth=block.clientWidth-parseFloat(style.paddingLeft)-parseFloat(style.paddingRight);
+      return availableWidth<14||text.scrollWidth>availableWidth+1||text.scrollHeight>Math.min(text.clientHeight,block.clientHeight)+1;
     });
     if(!overflow.length)continue;
     const labels=document.createElement('div');labels.className='time-band-callouts';band.append(labels);
@@ -1128,7 +1142,7 @@ function showSelection(start, end) {
     segment.style.left=`${(from-base)/360*100}%`;segment.style.width=`${(to-from)/360*100}%`;segment.textContent='';
   }
   let readout=$('timeBands').querySelector('.drag-readout');if(!readout){readout=document.createElement('span');readout.className='drag-readout';$('timeBands').append(readout);}
-  readout.textContent=`${timeText(start)} — ${timeText(end)}　${durationText(end-start)}`;
+  readout.textContent=`${timeText(start)} - ${timeText(end)}　${durationText(end-start)}`;
 }
 $('timeBands').addEventListener('pointerdown', event => {
   const track = event.target.closest('.time-track'); if (!track || event.target.closest('button') || event.button !== 0) return;
