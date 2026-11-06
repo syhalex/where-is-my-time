@@ -1,6 +1,7 @@
 import { PALETTE, OTHER_TIME_EVENT, emptyData, normalizeName, dateKey, fromKey, addDays, timeText, parseTime, durationText, validDate, entriesOn, getEvent, getCategory, totals, categoryTotals, statisticsEntries, categoryFocus, saveCategory, deleteCategory, continuationRange, snapMinute, nextEventColor, randomColorOptions, heatColor, hexToHsv, hsvToHex, recordedMinutes, pruneUnusedCategories, groupEntries, recentEvents, queryDuration, restoreEntry, saveEntry, renameEvent, validateData, readBackup, mergeData } from './core.js';
 import {STORAGE_KEY,loadStoredData,writeStoredData,listRecoverySources,preserveOriginal} from './storage.js';
 import {setupComparison} from './comparison-ui.js';
+import {calloutConnectorPath} from './comparison.js';
 
 const $ = id => document.getElementById(id);
 const h = value => String(value).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -487,7 +488,8 @@ function openDatePicker(target='record',anchor=$('dateTrigger'),options=null) {
   if ($('dateDropdown').matches(':popover-open')&&dropdownAnchors.get('dateDropdown')===anchor) { closeDropdown('dateDropdown'); return; }
   // Mount in the invoking dialog before rendering; all date fields use this picker.
   closeDropdown('dateDropdown',false);pickerTarget=target;pickerOptions=options;
-  pickerCursor = target==='record'?selected:$(target).value.slice(0,10); pickerMonthMode = false;
+  const activeDate = target==='record'?selected:$(target).value.slice(0,10);
+  pickerCursor = validDate(activeDate)?activeDate:options?.initialDate||selected; pickerMonthMode = false;
   renderDatePicker();openDropdown('dateDropdown',anchor,'start');
 }
 function choosePickerDate(key) {
@@ -648,7 +650,7 @@ function layoutTimelineLabels(card=timelineCard,expanded=timelineFullscreen.open
     const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.classList.add('time-band-connectors');svg.setAttribute('aria-hidden','true');svg.setAttribute('viewBox',`0 0 ${width} ${height}`);
     for(const {label,left,center,lane,color} of placements){
       const top=tops[lane];label.style.left=`${left}px`;label.style.top=`${top}px`;
-      const path=document.createElementNS('http://www.w3.org/2000/svg','path');path.setAttribute('d',`M${center} 0V${top-5}H${left+12}V${top}`);path.setAttribute('stroke',color);svg.append(path);
+      const path=document.createElementNS('http://www.w3.org/2000/svg','path');path.setAttribute('d',calloutConnectorPath(center,0,left,top));path.setAttribute('stroke',color);svg.append(path);
     }
     labels.prepend(svg);
   }

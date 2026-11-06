@@ -28,24 +28,22 @@
   </main>
   <dialog id="comparisonDialog" class="comparison-dialog" aria-labelledby="comparisonTitle">
     <div class="dialog-heading"><h2 id="comparisonTitle">对比记录</h2><button type="button" class="icon-button" data-close="comparisonDialog" aria-label="关闭"></button></div>
-    <form id="comparisonForm" class="comparison-form">
+    <div id="comparisonForm" class="comparison-form">
       <div class="comparison-sources">
-        <div class="comparison-source" role="group" aria-labelledby="comparisonRecordTitle0"><h3 id="comparisonRecordTitle0">记录 A</h3>
-          <div class="comparison-source-control"><span id="comparisonSourceLabel0">数据来源</span><input id="comparisonSource0" type="hidden" value="own"><button type="button" id="comparisonSourceButton0" class="selection-trigger" aria-labelledby="comparisonSourceLabel0 comparisonSourceValue0" aria-haspopup="listbox" aria-controls="comparisonSourceDropdown" aria-expanded="false"><span id="comparisonSourceValue0">自己的记录</span><span class="select-chevron" aria-hidden="true"></span></button></div>
-          <div class="comparison-import"><button type="button" class="button quiet small" id="comparisonImport0" hidden>选择备份</button><span id="comparisonFilename0" hidden></span><input type="file" id="comparisonFile0" accept="application/json,.json" hidden></div>
-          <div class="comparison-fields"><div class="comparison-date-control"><span id="comparisonDateLabel0">日期</span><input id="comparisonDate0" type="hidden"><button type="button" id="comparisonDateButton0" class="date-trigger date-field" aria-labelledby="comparisonDateLabel0 comparisonDateValue0" aria-haspopup="dialog" aria-controls="dateDropdown" aria-expanded="false"><span class="date-icon" aria-hidden="true"></span><span id="comparisonDateValue0" class="comparison-date-value"></span><span class="select-chevron" aria-hidden="true"></span></button></div><label>展示名称<input id="comparisonName0" type="text" maxlength="32" placeholder="记录1" autocomplete="off"></label></div>
-        </div>
-        <div class="comparison-source" role="group" aria-labelledby="comparisonRecordTitle1"><h3 id="comparisonRecordTitle1">记录 B</h3>
-          <div class="comparison-source-control"><span id="comparisonSourceLabel1">数据来源</span><input id="comparisonSource1" type="hidden" value="own"><button type="button" id="comparisonSourceButton1" class="selection-trigger" aria-labelledby="comparisonSourceLabel1 comparisonSourceValue1" aria-haspopup="listbox" aria-controls="comparisonSourceDropdown" aria-expanded="false"><span id="comparisonSourceValue1">自己的记录</span><span class="select-chevron" aria-hidden="true"></span></button></div>
-          <div class="comparison-import"><button type="button" class="button quiet small" id="comparisonImport1" hidden>选择备份</button><span id="comparisonFilename1" hidden></span><input type="file" id="comparisonFile1" accept="application/json,.json" hidden></div>
-          <div class="comparison-fields"><div class="comparison-date-control"><span id="comparisonDateLabel1">日期</span><input id="comparisonDate1" type="hidden"><button type="button" id="comparisonDateButton1" class="date-trigger date-field" aria-labelledby="comparisonDateLabel1 comparisonDateValue1" aria-haspopup="dialog" aria-controls="dateDropdown" aria-expanded="false"><span class="date-icon" aria-hidden="true"></span><span id="comparisonDateValue1" class="comparison-date-value"></span><span class="select-chevron" aria-hidden="true"></span></button></div><label>展示名称<input id="comparisonName1" type="text" maxlength="32" placeholder="记录2" autocomplete="off"></label></div>
-        </div>
+        <div class="comparison-cards" id="comparisonCards"></div>
+        <button type="button" id="comparisonAdd" class="comparison-add" aria-label="添加对比记录" title="添加记录，最多 6 份"></button>
       </div>
-      <div class="comparison-generate"><p class="form-error" id="comparisonError" role="alert" hidden></p><button class="button primary" type="submit" id="comparisonGenerate">生成对照图</button></div>
-    </form>
+      <p class="form-error" id="comparisonError" role="alert" hidden></p>
+    </div>
     <div class="comparison-workspace"><div id="comparisonEmpty" class="comparison-empty">对照图预览</div><div id="comparisonPreview" class="comparison-preview" aria-label="对照图预览" aria-live="polite" hidden></div></div>
     <div class="comparison-actions"><button type="button" class="button quiet" id="comparisonFullscreen" disabled>全屏</button><span class="spacer"></span><button type="button" class="button quiet" id="comparisonCopy" disabled>复制图片</button><button type="button" class="button quiet" id="comparisonSvg" disabled>导出 SVG</button><button type="button" class="button primary" id="comparisonPng" disabled>导出 PNG</button></div>
   </dialog>
+  <template id="comparisonRecordTemplate"><div class="comparison-source" role="group">
+    <div class="comparison-source-heading"><h3 data-field="title"></h3><button type="button" class="icon-button comparison-remove" data-field="remove" aria-label="移除记录" hidden></button></div>
+    <div class="comparison-source-control"><span data-field="sourceLabel">数据来源</span><input data-field="source" type="hidden"><button type="button" data-field="sourceButton" class="selection-trigger" aria-haspopup="listbox" aria-controls="comparisonSourceDropdown" aria-expanded="false"><span data-field="sourceValue">选择数据来源</span><span class="select-chevron" aria-hidden="true"></span></button></div>
+    <div class="comparison-import"><button type="button" class="button quiet small" data-field="import" hidden>选择备份</button><span data-field="filename" hidden></span><input type="file" data-field="file" accept="application/json,.json" hidden></div>
+    <div class="comparison-fields"><div class="comparison-date-control"><span data-field="dateLabel">日期</span><input data-field="date" type="hidden"><button type="button" data-field="dateButton" class="date-trigger date-field" aria-haspopup="dialog" aria-controls="dateDropdown" aria-expanded="false" disabled><span class="date-icon" aria-hidden="true"></span><span data-field="dateValue" class="comparison-date-value">选择日期</span><span class="select-chevron" aria-hidden="true"></span></button></div><label>展示名称<input data-field="name" type="text" maxlength="32" autocomplete="off"></label></div>
+  </div></template>
   <div id="comparisonSourceDropdown" class="select-dropdown" popover="auto"><div id="comparisonSourceChoices" role="listbox" aria-label="数据来源"></div></div>
   <dialog id="comparisonFullscreenDialog" class="comparison-fullscreen-dialog" aria-label="全屏对照图"><button type="button" id="comparisonFullscreenClose" class="icon-button" aria-label="退出对照图全屏"></button><div id="comparisonFullscreenPreview" class="comparison-preview"></div></dialog>
   <dialog id="timelineFullscreenDialog" class="timeline-fullscreen-dialog" aria-label="全天时间带"></dialog>

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { emptyData, saveEntry, readBackup } from '../core.js';
-import { comparisonDates, layoutComparison, renderComparisonSvg } from '../comparison.js';
+import { MAX_COMPARISON_RECORDS, comparisonDates, layoutComparison, renderComparisonSvg, calloutConnectorPath } from '../comparison.js';
 
 const day = '2026-11-01';
 const record = (data, changes = {}) => saveEntry(data, {date:day, start:540, end:600, name:'阅读', color:'#89A996', ...changes});
@@ -91,4 +91,71 @@ test('fullscreen styling keeps short wrapped names in blocks and uses borderless
   assert.match(svg, /我的 一天/);
   assert.doesNotMatch(svg, /·|A ·|B ·|stroke-dasharray/);
   assert.equal((svg.match(/class="comparison-track"/g) || []).length, 8);
+});
+
+test('callouts use the fullscreen elbow route at the left of the label, mirrored above and below', () => {
+  const data = record(emptyData(), {name:'学习电磁学', start:660, end:675});
+  const layout = layoutComparison([side(data), side(data)]), group = layout.groups[1];
+  const svg = renderComparisonSvg(layout);
+  group.rows.forEach((row, index) => {
+    const item = row.callouts[0], direction = index ? 1 : -1, edge = index ? group.yB + layout.barHeight : group.yA;
+    const path = calloutConnectorPath(item.center, edge, item.labelX, edge + direction * item.offset, direction);
+    assert.ok(Math.abs(item.center - (item.labelX + 12)) > 20, 'connector must have a visible horizontal leg');
+    assert.ok(svg.includes(`class="comparison-connector" d="${path}"`));
+  });
+  assert.equal(calloutConnectorPath(120, 0, 75, 12), 'M120 0V7H87V12');
+  assert.equal(calloutConnectorPath(120, 100, 75, 88, -1), 'M120 100V93H87V88');
+});
+
+test('two to six records keep four groups, shared minute coordinates, colors and record order', () => {
+  const data = record(emptyData(), {name:'共同事件', start:500, end:565});
+  assert.equal(MAX_COMPARISON_RECORDS, 6);
+  for (const count of [2,3,4,6]) {
+    const sources = Array.from({length:count}, (_,index) => {
+      const copy = structuredClone(data); copy.events[0].color = index ? '#FF0000' : '#89A996';
+      return side(copy, day, `第${index+1}份记录`);
+    });
+    const before = JSON.stringify(sources), layout = layoutComparison(sources), rows = layout.groups[1].rows;
+    assert.equal(layout.groups.flatMap(group=>group.rows).length, count*4);
+    assert.deepEqual(layout.records.map(record=>record.name), sources.map(source=>source.name));
+    rows.forEach((row,index) => {
+      assert.equal(row.blocks[0].x, rows[0].blocks[0].x);
+      assert.equal(row.blocks[0].width, 65/360*layout.trackWidth);
+      assert.equal(row.blocks[0].color, '#89A996');
+      assert.equal(row.direction, index ? 1 : -1);
+      if (index) assert.ok(row.y > rows[index-1].y+layout.barHeight);
+    });
+    assert.equal((renderComparisonSvg(layout).match(/class="comparison-track"/g)||[]).length,count*4);
+    assert.equal(JSON.stringify(sources), before);
+  }
+  assert.throws(()=>layoutComparison([side(data)]), /2 至 6/);
+  assert.throws(()=>layoutComparison(Array.from({length:7},()=>side(data))), /2 至 6/);
+});
+
+test('middle-row annotations occupy reserved space before the next row and stay inside each group', () => {
+  let data = emptyData();
+  for(let index=0;index<12;index++)data=record(data,{start:600+index*5,end:605+index*5,name:`${index} 长说明需要完整显示且不能穿过下一条记录`.repeat(2)});
+  const layout=layoutComparison(Array.from({length:6},()=>side(data)));
+  layout.groups.forEach(group=>group.rows.forEach((row,index)=>{
+    row.callouts.forEach(item=>{
+      const top=row.direction<0?row.y-item.offset-item.labelHeight:row.y+layout.barHeight+item.offset;
+      assert.ok(top>=group.top);
+      assert.ok(top+item.labelHeight<group.top+group.height);
+      assert.equal(item.lines.join(''),item.name);
+      if(index&&index<group.rows.length-1)assert.ok(top+item.labelHeight<group.rows[index+1].axisY-8);
+    });
+  }));
+});
+
+test('six independent dates and default names appear in the exported vector chart', () => {
+  const sources=Array.from({length:6},(_,index)=>{
+    const date=`2026-11-0${index+1}`;return side(record(emptyData(),{date}),date);
+  });
+  const layout=layoutComparison(sources),svg=renderComparisonSvg(layout);
+  sources.forEach((source,index)=>{
+    assert.ok(layout.dateTitle.includes(source.date));
+    assert.ok(svg.includes(`记录${index+1}`));
+  });
+  assert.equal(layout.records.length,6);
+  assert.equal(layout.groups.at(-1).rows.length,6);
 });
