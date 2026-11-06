@@ -1,5 +1,6 @@
 import { PALETTE, OTHER_TIME_EVENT, emptyData, normalizeName, dateKey, fromKey, addDays, timeText, parseTime, durationText, validDate, entriesOn, getEvent, getCategory, totals, categoryTotals, statisticsEntries, categoryFocus, saveCategory, deleteCategory, continuationRange, snapMinute, nextEventColor, randomColorOptions, heatColor, hexToHsv, hsvToHex, recordedMinutes, pruneUnusedCategories, groupEntries, recentEvents, queryDuration, restoreEntry, saveEntry, renameEvent, validateData, readBackup, mergeData } from './core.js';
 import {STORAGE_KEY,loadStoredData,writeStoredData,listRecoverySources,preserveOriginal} from './storage.js';
+import {setupComparison} from './comparison-ui.js';
 
 const $ = id => document.getElementById(id);
 const h = value => String(value).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -7,10 +8,25 @@ const paths = {
   left: '<path d="m14 6-6 6 6 6"/>', right: '<path d="m10 6 6 6-6 6"/>', down: '<path d="m7 10 5 5 5-5"/>', plus: '<path d="M12 5v14M5 12h14"/>', close: '<path d="m6 6 12 12M18 6 6 18"/>',
   events: '<path d="M3 4h8l10 10-7 7L3 10Z"/><circle cx="7.5" cy="8" r="1"/>', backup: '<path d="M12 3v12m-4-4 4 4 4-4M5 16v4h14v-4"/>', archive: '<rect x="3" y="4" width="18" height="5" rx="1"/><path d="M5 9v11h14V9M10 13h4"/>', search: '<circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/>', filter: '<path d="M4 5h16l-6 7v7l-4-2v-5Z"/>',
   expand: '<path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/>', collapse: '<path d="M3 8h5V3m8 0v5h5M8 21v-5H3m18 0h-5v5"/>',
+  compare: '<rect x="3" y="4" width="18" height="6" rx="1"/><rect x="3" y="14" width="18" height="6" rx="1"/><path d="M9 4v6m6 4v6"/>',
   palette: '<circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 1 8 8c0 3-4 0-5 2s2 6-2 6"/><circle cx="8" cy="9" r=".8"/><circle cx="12" cy="7.5" r=".8"/><circle cx="16" cy="9" r=".8"/>',
   trash: '<path d="M4 6h16M9 6V3h6v3M6 6l1 15h10l1-15M10 10v7m4-7v7"/>', check: '<path d="m5 12 4 4L19 6"/>', clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>', calendar: '<rect x="4" y="5" width="16" height="16" rx="3"/><path d="M8 3v4m8-4v4M4 11h16m-11 4h2m3 0h2m-7 3h2"/>'
 };
 const icon = name => `<svg${name==='down'?' class="dropdown-chevron"':''} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] || ''}</svg>`;
+// Retain preview content until the dialog has actually finished fading out.
+const pendingDialogCleanups = new WeakMap();
+function finishDialogCleanup(dialog) {
+  const pending=pendingDialogCleanups.get(dialog);if(!pending)return;
+  pendingDialogCleanups.delete(dialog);pending.cleanup();
+}
+function afterDialogExit(dialog,cleanup) {
+  if(dialog.open)return;
+  const pending={cleanup};pendingDialogCleanups.set(dialog,pending);
+  const complete=()=>{if(pendingDialogCleanups.get(dialog)===pending&&!dialog.open)finishDialogCleanup(dialog);};
+  const animations=dialog.getAnimations();
+  if(animations.length)Promise.allSettled(animations.map(animation=>animation.finished)).then(complete);
+  else complete();
+}
 // All minute inputs share the recording editor's field and stepper controls.
 document.querySelectorAll('[data-time-input]').forEach(field=>{
   const {timeInput:id,timeLabel:label,timeStep:step}=field.dataset;
@@ -25,7 +41,7 @@ const entryCategories = () => [...data.categories,...draftCategories.filter(c=>!
 const FOCUS_KEY = 'where-is-my-time.focus-category.v1';
 let data = emptyData(), rawStorage = null, persistenceLocked = false, selected = dateKey(new Date()), cursor = selected, view = 'day', filter = null;
 let editing = null, modalColor = PALETTE[0], imported = null, toastTimer, drag = null, confirmAction = null;
-let pickerCursor = selected, pickerMonthMode = false, pickerTarget = 'record', categoryTarget = null, categoryFormColor = PALETTE[0], colorTarget = null, hoverTrack = null;
+let pickerCursor = selected, pickerMonthMode = false, pickerTarget = 'record', pickerOptions = null, categoryTarget = null, categoryFormColor = PALETTE[0], colorTarget = null, hoverTrack = null;
 const categoryEventIds = new Set();
 let aggregation = 'events', yearCategory = 'study', modalColorManual = false, modalMatchedName = null, modalCategoryId = null;
 let focusCategory = 'study', statisticalCache = null, calendarDay = dateKey(new Date()), midnightTimer;
@@ -452,27 +468,31 @@ function applyColor(color) {
 }
 function renderDatePicker() {
   const d = fromKey(pickerCursor), year = d.getFullYear(), month = d.getMonth(), activeDate=pickerTarget==='record'?selected:$(pickerTarget).value.slice(0,10);
+  const allowedDates = pickerOptions?.dates, availableMonths = allowedDates ? new Set([...allowedDates].map(key=>key.slice(0,7))) : null;
   $('pickerTitle').innerHTML = `${year}年${month + 1}月${icon('down')}`; $('pickerTitle').setAttribute('aria-expanded', String(pickerMonthMode));
   $('pickerMonthPanel').hidden = !pickerMonthMode; $('pickerCalendar').hidden = pickerMonthMode; $('pickerYear').value = year;
-  $('pickerMonths').innerHTML = Array.from({ length: 12 }, (_, i) => `<button type="button" data-picker-month="${i}" class="${i === month ? 'selected' : ''}">${i + 1}月</button>`).join('');
+  $('pickerMonths').innerHTML = Array.from({ length: 12 }, (_, i) => `<button type="button" data-picker-month="${i}" class="${i === month ? 'selected' : ''}" ${availableMonths&&!availableMonths.has(`${year}-${String(i+1).padStart(2,'0')}`)?'disabled':''}>${i + 1}月</button>`).join('');
   const first = dateKey(new Date(year, month, 1, 12)), start = weekStart(first); let html = '';
   for (let i = 0; i < 42; i++) {
     const key = addDays(start, i), outside = fromKey(key).getMonth() !== month, today = key === dateKey(new Date());
-    html += `<button type="button" data-picker-date="${key}" class="picker-day${outside ? ' outside' : ''}${key === activeDate ? ' selected' : ''}${today ? ' today' : ''}" aria-label="${fullDate(key)}" aria-pressed="${key === activeDate}" ${validDate(key) ? '' : 'disabled'}>${fromKey(key).getDate()}</button>`;
+    html += `<button type="button" data-picker-date="${key}" class="picker-day${outside ? ' outside' : ''}${key === activeDate ? ' selected' : ''}${today ? ' today' : ''}" aria-label="${fullDate(key)}" aria-pressed="${key === activeDate}" ${validDate(key)&&(!allowedDates||allowedDates.has(key)) ? '' : 'disabled'}>${fromKey(key).getDate()}</button>`;
   }
   $('pickerDays').innerHTML = html;
   $('pickerPrev').disabled = year === 1900 && month === 0; $('pickerNext').disabled = year === 9999 && month === 11;
+  $('pickerToday').disabled = !!allowedDates&&!allowedDates.has(dateKey(new Date()));
+  if(availableMonths){const months=[...availableMonths].sort(),current=`${year}-${String(month+1).padStart(2,'0')}`;$('pickerPrev').disabled||=current<=months[0];$('pickerNext').disabled||=current>=months.at(-1);}
   if ($('dateDropdown').matches(':popover-open')) positionDropdown('dateDropdown', 'start');
 }
-function openDatePicker(target='record',anchor=$('dateTrigger')) {
+function openDatePicker(target='record',anchor=$('dateTrigger'),options=null) {
   if ($('dateDropdown').matches(':popover-open')&&dropdownAnchors.get('dateDropdown')===anchor) { closeDropdown('dateDropdown'); return; }
   // Mount in the invoking dialog before rendering; all date fields use this picker.
-  closeDropdown('dateDropdown',false);pickerTarget=target;
+  closeDropdown('dateDropdown',false);pickerTarget=target;pickerOptions=options;
   pickerCursor = target==='record'?selected:$(target).value.slice(0,10); pickerMonthMode = false;
   renderDatePicker();openDropdown('dateDropdown',anchor,'start');
 }
 function choosePickerDate(key) {
-  if(pickerTarget==='record')selectDate(key);
+  if(pickerOptions){if(!pickerOptions.dates.has(key))return;pickerOptions.onSelect(key);}
+  else if(pickerTarget==='record')selectDate(key);
   else{setQueryDateTime(pickerTarget,key,$(pickerTarget+'Time').value);runQuery();}
   closeDropdown('dateDropdown');
 }
@@ -505,7 +525,7 @@ function openDropdown(id, anchor, align = 'end') {
   for (const otherId of dropdownAnchors.keys()) if (otherId !== id) closeDropdown(otherId, false);
   const host = anchor.closest('dialog') || document.body;
   if (panel.parentElement !== host) host.append(panel);
-  dropdownAnchors.set(id, anchor); anchor.setAttribute('aria-controls', id); anchor.setAttribute('aria-expanded', 'true'); anchor.setAttribute('aria-haspopup', ['filterDropdown','categoryDropdown','categoryEventDropdown','focusDropdown','exportRangeDropdown'].includes(id) ? 'listbox' : 'dialog');
+  dropdownAnchors.set(id, anchor); anchor.setAttribute('aria-controls', id); anchor.setAttribute('aria-expanded', 'true'); anchor.setAttribute('aria-haspopup', ['filterDropdown','categoryDropdown','categoryEventDropdown','focusDropdown','exportRangeDropdown','comparisonSourceDropdown'].includes(id) ? 'listbox' : 'dialog');
   if (id === 'dateDropdown' || id === 'colorDropdown') { panel.setAttribute('role', 'dialog'); panel.setAttribute('aria-modal', 'false'); }
   panel.querySelectorAll('.filter-choice').forEach(button => { button.setAttribute('role', 'option'); button.tabIndex = -1; });
   panel.style.maxHeight = `${Math.max(150, Math.min(420, innerHeight - 32))}px`; panel.showPopover();
@@ -588,11 +608,12 @@ $('storageExport').onclick=downloadBackup;
 function showStorageFailure(message){$('storageNotice').hidden=false;$('storageNoticeText').textContent=`数据未能启用，原始记录已保留。${message||'请使用恢复入口或导出原件'}`;}
 
 $('manageEvents').innerHTML = icon('events') + '时间与分类'; $('backupButton').innerHTML = icon('archive') + '备份管理' + icon('down'); $('queryButton').innerHTML=icon('search')+'查询'; $('addEntry').innerHTML = icon('plus') + '记录时间';
+setupComparison({getData:()=>data,getSelectedDate:()=>selected,toast,icon,openDatePicker,openDropdown,closeDropdown,afterDialogExit,finishDialogCleanup,closeDatePicker:()=>closeDropdown('dateDropdown',false),beforeOpen:()=>{closeBackup();for(const id of dropdownAnchors.keys())closeDropdown(id,false);}});
 const timelineFullscreen=$('timelineFullscreenDialog'),timelineCard=$('timelineCard'),timelineFullscreenButton=$('timelineFullscreenButton');
 let timelinePlaceholder=null,timelinePageOverflow='';
 let timelineLabelsFrame=0,timelineLabelsWidth=0;
 function queueTimelineLabels(){cancelAnimationFrame(timelineLabelsFrame);timelineLabelsFrame=requestAnimationFrame(()=>layoutTimelineLabels());}
-function layoutTimelineLabels(card=timelineCard,expanded=timelineFullscreen.open){
+function layoutTimelineLabels(card=timelineCard,expanded=timelineFullscreen.open||!!timelinePlaceholder){
   for(const band of card.querySelectorAll('.band')){
     band.querySelector('.time-band-callouts')?.remove();
     const blocks=[...band.querySelectorAll('.time-block')];
@@ -642,19 +663,28 @@ function updateTimelineFullscreenButton(){
 }
 timelineFullscreenButton.onclick=()=>{
   if(timelineFullscreen.open){timelineFullscreen.close();return;}
+  finishDialogCleanup(timelineFullscreen);restoreTimeline();
   closeBackup();for(const id of dropdownAnchors.keys())closeDropdown(id,false);
   cancelDrag();clearHover();
   timelinePlaceholder=document.createComment('timeline position');timelineCard.before(timelinePlaceholder);
   timelineFullscreen.append(timelineCard);timelinePageOverflow=document.body.style.overflow;document.body.style.overflow='hidden';
   timelineFullscreen.showModal();updateTimelineFullscreenButton();queueTimelineLabels();timelineFullscreenButton.focus({preventScroll:true});
 };
+function restoreTimeline(){
+  if(!timelinePlaceholder)return;
+  const restoreFocus=document.activeElement===document.body||timelineFullscreen.contains(document.activeElement);
+  timelinePlaceholder.replaceWith(timelineCard);timelinePlaceholder=null;
+  document.body.style.overflow=timelinePageOverflow;updateTimelineFullscreenButton();queueTimelineLabels();
+  if(restoreFocus&&!document.querySelector('dialog[open]'))timelineFullscreenButton.focus({preventScroll:true});
+}
 timelineFullscreen.addEventListener('close',()=>{
-  cancelDrag();clearHover();timelinePlaceholder?.replaceWith(timelineCard);timelinePlaceholder=null;
-  document.body.style.overflow=timelinePageOverflow;updateTimelineFullscreenButton();queueTimelineLabels();timelineFullscreenButton.focus({preventScroll:true});
+  if(timelineFullscreen.open)return;
+  cancelDrag();clearHover();afterDialogExit(timelineFullscreen,restoreTimeline);
 });
 updateTimelineFullscreenButton();
 $('timelineDownloadButton').innerHTML=icon('backup');
 $('timelineDownloadButton').onclick=()=>{
+  finishDialogCleanup($('timelineExportDialog'));
   exportForm.reset();
   const mode=['year','day'].includes(view)?view:'month';
   exportRanges.categories=mode;exportRanges.focus=mode;exportRanges.days=view==='year'?'year':'month';
@@ -871,8 +901,11 @@ async function exportImage(copy=false) {
 exportForm.onsubmit=event=>{event.preventDefault();exportImage();};
 $('timelineExportCopy').onclick=()=>exportImage(true);
 $('timelineExportDialog').addEventListener('close',()=>{
+  if($('timelineExportDialog').open)return;
   ++exportPreviewVersion;cancelAnimationFrame(exportPreviewFrame);exportPreviewData=null;
-  $('timelineExportPreview').removeAttribute('src');$('timelineExportPreview').hidden=true;
+  afterDialogExit($('timelineExportDialog'),()=>{
+    $('timelineExportPreview').removeAttribute('src');$('timelineExportPreview').hidden=true;
+  });
 });
 for (const id of ['periodPrev', 'dayPrev']) $(id).innerHTML = icon('left');
 for (const id of ['periodNext', 'dayNext']) $(id).innerHTML = icon('right');
