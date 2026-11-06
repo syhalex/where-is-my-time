@@ -615,7 +615,7 @@ $('storageRestore').onclick=()=>recoveryButton.click();
 $('storageExport').onclick=downloadBackup;
 function showStorageFailure(message){$('storageNotice').hidden=false;$('storageNoticeText').textContent=`数据未能启用，原始记录已保留。${message||'请使用恢复入口或导出原件'}`;}
 
-$('manageEvents').innerHTML = icon('events') + '时间与分类'; $('backupButton').innerHTML = icon('archive') + '备份与分享' + icon('down'); $('queryButton').innerHTML=icon('search')+'查询'; $('addEntry').innerHTML = icon('plus') + '记录时间';
+$('manageEvents').innerHTML = icon('events') + '事件与分类'; $('backupButton').innerHTML = icon('archive') + '备份与分享' + icon('down'); $('queryButton').innerHTML=icon('search')+'查询'; $('addEntry').innerHTML = icon('plus') + '记录时间';
 const comparisonController = setupComparison({getData:()=>data,getSelectedDate:()=>selected,toast,icon,openDatePicker,openDropdown,closeDropdown,afterDialogExit,finishDialogCleanup,closeDatePicker:()=>closeDropdown('dateDropdown',false),beforeOpen:()=>{closeBackup();for(const id of dropdownAnchors.keys())closeDropdown(id,false);}});
 const timelineFullscreen=$('timelineFullscreenDialog'),timelineCard=$('timelineCard'),timelineFullscreenButton=$('timelineFullscreenButton');
 let timelinePlaceholder=null,timelinePageOverflow='';
