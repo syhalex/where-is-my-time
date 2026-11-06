@@ -747,10 +747,13 @@ dialog[open]::backdrop{opacity:1}
 .timeline-fullscreen-button:hover,.timeline-download-button:hover{background:#f0f4e9;color:var(--green)}
 .timeline-actions svg{width:17px;height:17px}
 .timeline-fullscreen-dialog{inset:0;margin:0;width:100%;max-width:none;height:100dvh;max-height:none;padding:0;border:0;border-radius:0;background:#fff;overflow:auto;overscroll-behavior:contain}
-.timeline-fullscreen-dialog[open]{display:flex}
-.timeline-fullscreen-dialog .timeline-card{width:100%;min-height:100%;display:flex;flex-direction:column;align-self:stretch;padding:clamp(20px,3.5vw,56px);border:0;border-radius:0;box-shadow:none}
-.timeline-fullscreen-dialog .day-summary{flex-shrink:0;margin-bottom:clamp(24px,4vh,42px)}
-.timeline-fullscreen-dialog .day-summary-title{font-size:22px}
+html:has(.timeline-fullscreen-dialog[open]),body:has(.timeline-fullscreen-dialog[open]){overflow:hidden}
+.timeline-fullscreen-dialog[open]{display:block}
+.timeline-fullscreen-dialog .timeline-card{width:100%;min-height:100dvh;display:flex;flex-direction:column;align-self:stretch;padding:clamp(20px,3.5vw,56px);padding-bottom:calc(clamp(20px,3.5vw,56px) + 16px);border:0;border-radius:0;box-shadow:none}
+.timeline-fullscreen-dialog .day-summary{flex-shrink:0;min-height:30px;margin-bottom:clamp(24px,4vh,42px)}
+.timeline-fullscreen-dialog .day-summary-title{margin:0;font-size:22px;line-height:30px;letter-spacing:0}
+.timeline-fullscreen-dialog .day-title-group{width:auto;align-items:center;justify-content:flex-start;gap:14px}
+.timeline-fullscreen-dialog .timeline-actions>.button{height:30px;min-height:30px;padding:0 12px}
 .timeline-fullscreen-dialog .timeline-bands{position:relative;flex:1;display:flex;flex-direction:column;justify-content:space-around;gap:clamp(20px,3vh,36px)}
 .timeline-fullscreen-dialog .band{margin-bottom:0}
 .timeline-fullscreen-dialog .band-label{font-size:13px}
@@ -762,12 +765,12 @@ dialog[open]::backdrop{opacity:1}
 .timeline-fullscreen-dialog .time-block.needs-callout>span{visibility:hidden}
 .time-band-callouts{display:none}
 .timeline-fullscreen-dialog .time-band-callouts{display:block;position:relative;width:100%}
-.timeline-fullscreen-dialog .time-band-callout{position:absolute;z-index:1;justify-content:flex-start;align-items:flex-start;width:max-content;max-width:min(260px,100%);padding:4px 7px;background:#fff;border-radius:4px;gap:6px;font-size:13px;line-height:1.4;text-align:left}
+.timeline-fullscreen-dialog .time-band-callout{display:flex;position:absolute;z-index:1;justify-content:flex-start;align-items:flex-start;width:max-content;max-width:min(260px,100%);padding:4px 7px;background:#fff;border-radius:4px;gap:6px;font-size:13px;line-height:1.4;text-align:left}
 .time-band-callout>span{min-width:0;overflow-wrap:anywhere;white-space:normal}
 .time-band-callout .legend-dot{margin-top:6px}
 .time-band-callout:hover{background:#f2f6ed}
 .time-band-connectors{position:absolute;inset:0;width:100%;height:100%;overflow:visible;pointer-events:none;fill:none;stroke-width:1;opacity:.65}
-.timeline-fullscreen-dialog .timeline-legend{flex-shrink:0;margin-top:28px;gap:16px}
+.timeline-fullscreen-dialog .timeline-legend{flex-shrink:0;margin-top:16px;gap:16px}
 .timeline-fullscreen-dialog .legend-item{font-size:13px;max-width:none;overflow-wrap:anywhere}
 .timeline-export-dialog{width:1180px;height:min(820px,calc(100dvh - 48px));max-height:calc(100dvh - 32px);overflow:hidden;padding:24px}
 #timelineExportForm{display:flex;flex-direction:column;height:100%;min-height:0}
@@ -777,12 +780,12 @@ dialog[open]::backdrop{opacity:1}
 .timeline-export-dialog .dialog-actions [aria-disabled=true]{cursor:progress}
 .export-workspace{display:grid;grid-template-columns:minmax(0,1fr) 260px;gap:24px;flex:1;min-height:0}
 .export-preview-panel{position:relative;display:flex;align-items:center;justify-content:center;min-height:0;min-width:0;padding:20px;background:#edf0e9;border:1px solid #e3e9dc;border-radius:12px;overflow:hidden}
-.export-preview-panel img{display:block;max-width:100%;max-height:100%;object-fit:contain;box-shadow:0 2px 12px #3043290d;transition:opacity .15s}
+.export-preview-panel img{display:block;width:100%;height:100%;min-width:0;min-height:0;max-width:100%;max-height:100%;object-fit:contain;transition:opacity .15s}
 .export-preview-panel[aria-busy=true] img{opacity:.4}
 .export-preview-status{position:absolute;inset:0;display:grid;place-items:center;font-size:13px;color:#87977c;padding:24px;text-align:center}
 .export-options-panel{min-height:0;overflow:auto;padding-right:5px;overscroll-behavior:contain}
 .export-widget-choices{display:grid;gap:12px}
-.export-widget-option{display:block;padding:14px;border:1px solid #e4eadf;border-radius:10px;cursor:pointer;min-width:0;background:#fff;transition:border-color .15s,background .15s}
+.export-widget-option{-webkit-tap-highlight-color:transparent;display:block;padding:14px;border:1px solid #e4eadf;border-radius:10px;cursor:pointer;min-width:0;background:#fff;transition:border-color .15s,background .15s}
 .export-widget-option:hover{border-color:#b8c7ac;background:#fafbf8}
 .export-widget-option:has(input:checked){border-color:#9db58e;background:#f6f9f1}
 .export-widget-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:12px;font-weight:500;margin-bottom:14px}
@@ -1033,12 +1036,8 @@ dialog .manager-row{border:0}
 
 .comparison-workspace{position:relative}
 .comparison-empty{position:absolute;inset:0;min-height:0}
-.share-dialog .day-summary{display:flex;align-items:center;flex-wrap:wrap;gap:16px}
-.share-dialog .day-title-group{width:auto;display:flex;align-items:center;justify-content:flex-start;flex-wrap:wrap;gap:14px}
-.share-dialog .day-summary-title{margin:0;line-height:32px}
-.share-dialog #shareSummary{display:flex;align-items:center;line-height:32px}
+.share-dialog #shareSummary{display:flex;align-items:center;line-height:30px}
 .share-dialog .time-block,.share-dialog .time-band-callout{cursor:default}
-.share-dialog .timeline-actions{margin-left:auto}
 
 .comparison-link{display:flex;align-items:center;margin-top:10px;height:var(--control-height);min-height:var(--control-height)}
 .comparison-import span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}

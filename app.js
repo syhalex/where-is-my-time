@@ -250,7 +250,7 @@ function timelineBandsMarkup(source, records, continuation=null, editable=true) 
   for (let band = 0; band < 4; band++) {
     const base = band * 360, recordsInBand = records.filter(e => e.start < base + 360 && e.end > base);
     bands += `<div class="band"><div class="band-heading"><span class="band-label">${['凌晨', '上午', '下午', '晚间'][band]}</span></div><div class="hour-labels">${Array.from({ length: 7 }, (_, i) => `<span>${timeText(base + i * 60)}</span>`).join('')}</div><div class="time-track" data-base="${base}" ${editable?'tabindex="0"':''} role="group" aria-label="${timeText(base)}至${timeText(base + 360)}${editable?'，拖选时间或按回车添加记录':''}">`;
-    bands += recordsInBand.map(e => { const t = getEvent(source,e.eventId), start = Math.max(base, e.start), end = Math.min(base + 360, e.end), width = (end - start) / 360 * 100; return `<${editable?'button':'div'} class="time-block${width < 8 ? ' narrow' : ''}" ${editable?`data-entry="${h(e.id)}"`:''} style="left:${(start - base) / 360 * 100}%;width:${width}%;background:${editable?entryBackground(e):t.color};--block-color:${t.color}" title="${h(t.name)} ${timeText(e.start)} - ${timeText(e.end)}" aria-label="${editable?'编辑':''}${h(t.name)} ${timeText(e.start)} - ${timeText(e.end)}"><span>${h(t.name)}</span></${editable?'button':'div'}>`; }).join('');
+    bands += recordsInBand.map(e => { const t = getEvent(source,e.eventId), start = Math.max(base, e.start), end = Math.min(base + 360, e.end), width = (end - start) / 360 * 100; return `<${editable?'button':'div'} class="time-block${width < 8 ? ' narrow' : ''}" ${editable?`data-entry="${h(e.id)}"`:''} style="left:${(start - base) / 360 * 100}%;width:${width}%;background:${t.color}70;--block-color:${t.color}" title="${h(t.name)} ${timeText(e.start)} - ${timeText(e.end)}" aria-label="${editable?'编辑':''}${h(t.name)} ${timeText(e.start)} - ${timeText(e.end)}"><span>${h(t.name)}</span></${editable?'button':'div'}>`; }).join('');
     if (continuation && continuation[0] >= base && continuation[0] < base + 360) bands += `<button class="continue-marker${continuation[0] - base > 310 ? ' marker-edge' : ''}" data-continue="${continuation[0]}" style="left:${(continuation[0] - base) / 360 * 100}%" aria-label="从${timeText(continuation[0])}继续记录"><span class="boundary-stem"></span><span class="boundary-label">${timeText(continuation[0])}${icon('plus')}</span></button>`;
     bands += '</div></div>';
   }
@@ -780,6 +780,7 @@ $('exportRangeDropdown').addEventListener('click',event=>{
 });
 function updateExportSelection(){
   const modules=new Set(new FormData(exportForm).getAll('modules')),version=++exportPreviewVersion;
+  if(exportPreviewData?.url)URL.revokeObjectURL(exportPreviewData.url);
   exportPreviewData=null;$('timelineExportConfirm').disabled=true;$('timelineExportCopy').disabled=true;cancelAnimationFrame(exportPreviewFrame);
   const status=$('timelineExportStatus'),image=$('timelineExportPreview'),panel=image.parentElement;
   status.hidden=false;status.textContent=modules.size?'正在生成预览…':'选择要导出的模块';
@@ -788,8 +789,8 @@ function updateExportSelection(){
   exportPreviewFrame=requestAnimationFrame(async()=>{
     try{
       const preview=await createTimelineExportPreview(modules,selected);
-      if(version!==exportPreviewVersion||!$('timelineExportDialog').open)return;
-      exportPreviewData=preview;image.src=preview.image.src;image.hidden=false;status.hidden=true;
+      if(version!==exportPreviewVersion||!$('timelineExportDialog').open){URL.revokeObjectURL(preview.url);return;}
+      exportPreviewData=preview;image.src=preview.url;image.hidden=false;status.hidden=true;
       $('timelineExportConfirm').disabled=$('timelineExportCopy').disabled=exportForm.getAttribute('aria-busy')==='true';
     }catch(error){
       if(version!==exportPreviewVersion)return;
@@ -866,21 +867,36 @@ async function createTimelineExportPreview(modules,exportDate){
     content.setAttribute('xmlns','http://www.w3.org/1999/xhtml');
     const style=document.createElement('style');
     style.textContent=[...document.styleSheets].flatMap(sheet=>{try{return [...sheet.cssRules].map(rule=>rule.cssText);}catch{return [];}}).join('\n');content.prepend(style);
-    const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('width',width);svg.setAttribute('height',height);
-    const foreign=document.createElementNS('http://www.w3.org/2000/svg','foreignObject');foreign.setAttribute('width','100%');foreign.setAttribute('height','100%');foreign.append(content);svg.append(foreign);
-    const image=new Image();image.src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(new XMLSerializer().serializeToString(svg));await image.decode();
-    return {image,width,height,date:exportDate};
+    const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('width',width);svg.setAttribute('height',height);svg.setAttribute('viewBox',`0 0 ${width} ${height}`);
+    const foreign=document.createElementNS('http://www.w3.org/2000/svg','foreignObject');foreign.setAttribute('x','0');foreign.setAttribute('y','0');foreign.setAttribute('width',width);foreign.setAttribute('height',height);foreign.append(content);svg.append(foreign);
+    const image=new Image();image.decoding='sync';
+    await new Promise((resolve,reject)=>{
+      image.onload=resolve;image.onerror=()=>reject(new Error('浏览器无法读取导出图片'));
+      image.src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(new XMLSerializer().serializeToString(svg));
+    });
+    const preview={image,width,height,date:exportDate};
+    // Preview the actual PNG used by both clipboard and download, including on iOS.
+    const blob=await exportPng(preview);preview.image=null;preview.url=URL.createObjectURL(blob);
+    return preview;
   }finally{surface.remove();}
 }
 function exportPng(preview) {
   if(preview.png)return preview.png;
   preview.png=(async()=>{
     const {image,width,height}=preview;
-    const scale=Math.min(2,Math.sqrt(32000000/(width*height)),16384/height),canvas=document.createElement('canvas');
-    canvas.width=Math.round(width*scale);canvas.height=Math.round(height*scale);
-    const context=canvas.getContext('2d');if(!context)throw new Error('浏览器无法创建图片');
-    context.scale(scale,scale);context.fillStyle='#fff';context.fillRect(0,0,width,height);context.drawImage(image,0,0,width,height);
-    const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));if(!blob)throw new Error('图片生成失败');return blob;
+    // iOS canvas limits are lower than desktop limits, independent of viewport width.
+    const ios=/iPad|iPhone|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
+    const maxPixels=ios?3000000:32000000,maxSide=ios?8192:16384;
+    const scale=Math.min(2,Math.sqrt(maxPixels/(width*height)),maxSide/width,maxSide/height),canvas=document.createElement('canvas');
+    canvas.width=Math.max(1,Math.floor(width*scale));canvas.height=Math.max(1,Math.floor(height*scale));
+    try{
+      const context=canvas.getContext('2d');if(!context)throw new Error('浏览器无法创建图片');
+      context.fillStyle='#fff';context.fillRect(0,0,canvas.width,canvas.height);
+      // Wait for the SVG image's rendering frame as well as its load event on WebKit.
+      await new Promise(requestAnimationFrame);
+      context.drawImage(image,0,0,canvas.width,canvas.height);
+      const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));if(!blob)throw new Error('图片生成失败');return blob;
+    }finally{canvas.width=canvas.height=0;}
   })().catch(error=>{preview.png=null;throw error;});
   return preview.png;
 }
@@ -910,9 +926,11 @@ exportForm.onsubmit=event=>{event.preventDefault();exportImage();};
 $('timelineExportCopy').onclick=()=>exportImage(true);
 $('timelineExportDialog').addEventListener('close',()=>{
   if($('timelineExportDialog').open)return;
-  ++exportPreviewVersion;cancelAnimationFrame(exportPreviewFrame);exportPreviewData=null;
+  ++exportPreviewVersion;cancelAnimationFrame(exportPreviewFrame);
+  const preview=exportPreviewData;exportPreviewData=null;
   afterDialogExit($('timelineExportDialog'),()=>{
     $('timelineExportPreview').removeAttribute('src');$('timelineExportPreview').hidden=true;
+    if(preview?.url)URL.revokeObjectURL(preview.url);
   });
 });
 for (const id of ['periodPrev', 'dayPrev']) $(id).innerHTML = icon('left');
