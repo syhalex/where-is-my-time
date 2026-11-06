@@ -168,7 +168,7 @@ function renderOverview() {
   if (view === 'week') { const a = fromKey(first), b = fromKey(addDays(last, -1)); title = a.getFullYear() === b.getFullYear() ? `${a.getFullYear()}年 ${a.getMonth() + 1}/${a.getDate()} - ${b.getMonth() + 1}/${b.getDate()}` : `${a.getFullYear()}/${a.getMonth() + 1}/${a.getDate()} - ${b.getFullYear()}/${b.getMonth() + 1}/${b.getDate()}`; }
   if (view === 'day') title = `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`;
   $('periodTitle').textContent = title;
-  $('stats').innerHTML=categoryStatMarkup(entries)+focusStatMarkup(fullPeriodEntries())+daysStatMarkup(entries);
+  $('stats').innerHTML=categoryStatMarkup(entries)+focusStatMarkup(fullPeriodEntries())+(view==='day'?'':daysStatMarkup(entries));
   const filterEvent = view === 'year' ? displayGroup(yearCategory, 'categories') : filter ? displayGroup(filter.id, filter.kind) : null;
   $('filterButton').innerHTML = (view === 'year' ? `<span class="legend-dot" style="background:${filterEvent.color}"></span>` : icon('filter')) + h(filterEvent ? filterEvent.name : aggregation === 'events' ? '全部事件' : '全部分类') + (view === 'year' ? icon('down') : ''); $('filterButton').classList.toggle('active', view === 'year' || !!filter);
   $('filterButton').setAttribute('aria-label', view === 'year' ? '选择年度分类' : aggregation === 'events' ? '筛选事件' : '筛选分类');
