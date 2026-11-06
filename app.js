@@ -1,3 +1,4 @@
+import {snapshotDay, encodeSnapshot, decodeSnapshot} from './sharing.js';
 import { PALETTE, OTHER_TIME_EVENT, emptyData, normalizeName, dateKey, fromKey, addDays, timeText, parseTime, durationText, validDate, entriesOn, getEvent, getCategory, totals, categoryTotals, statisticsEntries, categoryFocus, saveCategory, deleteCategory, continuationRange, snapMinute, nextEventColor, randomColorOptions, heatColor, hexToHsv, hsvToHex, recordedMinutes, pruneUnusedCategories, groupEntries, recentEvents, queryDuration, restoreEntry, saveEntry, renameEvent, validateData, readBackup, mergeData } from './core.js';
 import {STORAGE_KEY,loadStoredData,writeStoredData,listRecoverySources,preserveOriginal} from './storage.js';
 import {setupComparison} from './comparison-ui.js';
@@ -54,8 +55,9 @@ function freshColor(extra = []) { const color=nextEventColor([...usedColors(),..
 function freshPalette(color) { const colors=randomColorOptions(usedColors(),color,8,Math.random,[...colorHistory]); rememberColors(colors); return colors; }
 const dropdownAnchors = new Map();
 const monthHighlights = new Map();
+const openedWithShare = /^#share(?:d)?=/.test(location.hash);
 let startup;
-try { startup=loadStoredData(localStorage); }
+try { startup=loadStoredData(localStorage,{readOnly:openedWithShare}); }
 catch(error){startup={data:emptyData(),raw:null,locked:true,error:error.message};}
 data=pruneUnusedCategories(startup.data);rawStorage=startup.raw;persistenceLocked=startup.locked;
 try { const ids=JSON.parse(localStorage.getItem(RECENT_KEY)||'[]');if(Array.isArray(ids))recentSelections=[...new Set(ids.filter(id=>typeof id==='string'))].slice(0,5000); } catch {}
@@ -243,6 +245,17 @@ function updateYearLayout() {
   const cellPixels = Math.max(Math.round(12 * ratio), Math.min(Math.round(20 * ratio), Math.floor((Math.floor(available * ratio) - axisPixels - (weeks - 1) * gapPixels) / weeks)));
   chart.style.setProperty('--year-cell-size', `${cellPixels / ratio}px`); chart.style.setProperty('--year-cell-gap', `${gapPixels / ratio}px`);
 }
+function timelineBandsMarkup(source, records, continuation=null, editable=true) {
+  let bands = '';
+  for (let band = 0; band < 4; band++) {
+    const base = band * 360, recordsInBand = records.filter(e => e.start < base + 360 && e.end > base);
+    bands += `<div class="band"><div class="band-heading"><span class="band-label">${['凌晨', '上午', '下午', '晚间'][band]}</span></div><div class="hour-labels">${Array.from({ length: 7 }, (_, i) => `<span>${timeText(base + i * 60)}</span>`).join('')}</div><div class="time-track" data-base="${base}" ${editable?'tabindex="0"':''} role="group" aria-label="${timeText(base)}至${timeText(base + 360)}${editable?'，拖选时间或按回车添加记录':''}">`;
+    bands += recordsInBand.map(e => { const t = getEvent(source,e.eventId), start = Math.max(base, e.start), end = Math.min(base + 360, e.end), width = (end - start) / 360 * 100; return `<${editable?'button':'div'} class="time-block${width < 8 ? ' narrow' : ''}" ${editable?`data-entry="${h(e.id)}"`:''} style="left:${(start - base) / 360 * 100}%;width:${width}%;background:${editable?entryBackground(e):t.color};--block-color:${t.color}" title="${h(t.name)} ${timeText(e.start)} - ${timeText(e.end)}" aria-label="${editable?'编辑':''}${h(t.name)} ${timeText(e.start)} - ${timeText(e.end)}"><span>${h(t.name)}</span></${editable?'button':'div'}>`; }).join('');
+    if (continuation && continuation[0] >= base && continuation[0] < base + 360) bands += `<button class="continue-marker${continuation[0] - base > 310 ? ' marker-edge' : ''}" data-continue="${continuation[0]}" style="left:${(continuation[0] - base) / 360 * 100}%" aria-label="从${timeText(continuation[0])}继续记录"><span class="boundary-stem"></span><span class="boundary-label">${timeText(continuation[0])}${icon('plus')}</span></button>`;
+    bands += '</div></div>';
+  }
+  return bands;
+}
 function renderRecording() {
   const list=$('entryList'),sameDate=list.dataset.date===selected;
   const expanded=new Set(sameDate?[...list.querySelectorAll('.entry-group[open]')].map(group=>group.dataset.entryGroup):[]),scrollTop=sameDate?list.scrollTop:0;
@@ -253,14 +266,7 @@ function renderRecording() {
   const continuation = continuationRange(records);
   $('continueEntry').hidden = !continuation;
   if (continuation) $('continueEntry').innerHTML = `${icon('plus')}从 ${timeText(continuation[0])} 继续`;
-  let bands = '';
-  for (let band = 0; band < 4; band++) {
-    const base = band * 360, recordsInBand = records.filter(e => e.start < base + 360 && e.end > base);
-    bands += `<div class="band"><div class="band-heading"><span class="band-label">${['凌晨', '上午', '下午', '晚间'][band]}</span></div><div class="hour-labels">${Array.from({ length: 7 }, (_, i) => `<span>${timeText(base + i * 60)}</span>`).join('')}</div><div class="time-track" data-base="${base}" tabindex="0" role="group" aria-label="${timeText(base)}至${timeText(base + 360)}，拖选时间或按回车添加记录">`;
-    bands += recordsInBand.map(e => { const t = getEvent(data,e.eventId), start = Math.max(base, e.start), end = Math.min(base + 360, e.end), width = (end - start) / 360 * 100; return `<button class="time-block${width < 8 ? ' narrow' : ''}" data-entry="${h(e.id)}" style="left:${(start - base) / 360 * 100}%;width:${width}%;background:${entryBackground(e)};--block-color:${t.color}" title="${h(t.name)} ${timeText(e.start)} - ${timeText(e.end)}" aria-label="编辑${h(t.name)} ${timeText(e.start)} - ${timeText(e.end)}"><span>${h(t.name)}</span></button>`; }).join('');
-    if (continuation && continuation[0] >= base && continuation[0] < base + 360) bands += `<button class="continue-marker${continuation[0] - base > 310 ? ' marker-edge' : ''}" data-continue="${continuation[0]}" style="left:${(continuation[0] - base) / 360 * 100}%" aria-label="从${timeText(continuation[0])}继续记录"><span class="boundary-stem"></span><span class="boundary-label">${timeText(continuation[0])}${icon('plus')}</span></button>`;
-    bands += '</div></div>';
-  }
+  const bands = timelineBandsMarkup(data, records, continuation);
   $('timeBands').innerHTML = bands;
   queueTimelineLabels();
   const groups = groupEntries(records);
@@ -609,13 +615,13 @@ $('storageRestore').onclick=()=>recoveryButton.click();
 $('storageExport').onclick=downloadBackup;
 function showStorageFailure(message){$('storageNotice').hidden=false;$('storageNoticeText').textContent=`数据未能启用，原始记录已保留。${message||'请使用恢复入口或导出原件'}`;}
 
-$('manageEvents').innerHTML = icon('events') + '时间与分类'; $('backupButton').innerHTML = icon('archive') + '备份管理' + icon('down'); $('queryButton').innerHTML=icon('search')+'查询'; $('addEntry').innerHTML = icon('plus') + '记录时间';
-setupComparison({getData:()=>data,getSelectedDate:()=>selected,toast,icon,openDatePicker,openDropdown,closeDropdown,afterDialogExit,finishDialogCleanup,closeDatePicker:()=>closeDropdown('dateDropdown',false),beforeOpen:()=>{closeBackup();for(const id of dropdownAnchors.keys())closeDropdown(id,false);}});
+$('manageEvents').innerHTML = icon('events') + '时间与分类'; $('backupButton').innerHTML = icon('archive') + '备份与分享' + icon('down'); $('queryButton').innerHTML=icon('search')+'查询'; $('addEntry').innerHTML = icon('plus') + '记录时间';
+const comparisonController = setupComparison({getData:()=>data,getSelectedDate:()=>selected,toast,icon,openDatePicker,openDropdown,closeDropdown,afterDialogExit,finishDialogCleanup,closeDatePicker:()=>closeDropdown('dateDropdown',false),beforeOpen:()=>{closeBackup();for(const id of dropdownAnchors.keys())closeDropdown(id,false);}});
 const timelineFullscreen=$('timelineFullscreenDialog'),timelineCard=$('timelineCard'),timelineFullscreenButton=$('timelineFullscreenButton');
 let timelinePlaceholder=null,timelinePageOverflow='';
 let timelineLabelsFrame=0,timelineLabelsWidth=0;
 function queueTimelineLabels(){cancelAnimationFrame(timelineLabelsFrame);timelineLabelsFrame=requestAnimationFrame(()=>layoutTimelineLabels());}
-function layoutTimelineLabels(card=timelineCard,expanded=timelineFullscreen.open||!!timelinePlaceholder){
+function layoutTimelineLabels(card=timelineCard,expanded=timelineFullscreen.open||!!timelinePlaceholder,readOnly=false){
   for(const band of card.querySelectorAll('.band')){
     band.querySelector('.time-band-callouts')?.remove();
     const blocks=[...band.querySelectorAll('.time-block')];
@@ -633,8 +639,8 @@ function layoutTimelineLabels(card=timelineCard,expanded=timelineFullscreen.open
     const lanes=[],placements=[];
     for(const block of overflow){
       block.classList.add('needs-callout');
-      const text=block.querySelector('span'),label=document.createElement('button');
-      label.type='button';label.className='time-band-callout';label.dataset.entry=block.dataset.entry;
+      const text=block.querySelector('span'),label=document.createElement(readOnly?'div':'button');
+      if(!readOnly){label.type='button';label.dataset.entry=block.dataset.entry;}label.className='time-band-callout';
       label.title=block.title;label.setAttribute('aria-label',block.getAttribute('aria-label'));
       const dot=document.createElement('i');dot.className='legend-dot';dot.style.background=block.style.getPropertyValue('--block-color');
       const name=document.createElement('span');name.textContent=text.textContent;label.append(dot,name);labels.append(label);
@@ -1219,7 +1225,7 @@ function refreshCalendarDay() {
 }
 window.addEventListener('focus',refreshCalendarDay);
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')refreshCalendarDay();});
-if(!persistenceLocked&&data.categories.length!==startup.data.categories.length){
+if(!openedWithShare&&!persistenceLocked&&data.categories.length!==startup.data.categories.length){
   try{data=writeStoredData(localStorage,data);}catch(error){toast(`空分类未能清理：${error.message}`);}
 }
 render();
@@ -1227,3 +1233,63 @@ refreshCalendarDay();
 new ResizeObserver(entries=>{document.querySelector('.record-layout').style.setProperty('--timeline-height',`${Math.ceil(entries[0].borderBoxSize?.[0]?.blockSize||document.querySelector('.timeline-card').getBoundingClientRect().height)}px`);}).observe(document.querySelector('.timeline-card'));
 if(persistenceLocked)showStorageFailure(startup.error);
 else if(startup.migrated)toast('数据已升级并验证，升级前原件可在备份中恢复');
+
+// Sharing is an independent in-memory viewer: never import or commit its data.
+$('shareLinkButton').onclick = async () => {
+  closeBackup();
+  const snapshot = snapshotDay(data, selected);
+  if (!snapshot.records.length) { toast('所选当天没有可分享的记录'); return; }
+  try {
+    const token = await encodeSnapshot(snapshot), url = new URL(location.href);
+    url.hash = 'share=' + token;
+    if (url.href.length > 16000) throw new Error('分享链接过长，请改用导出图片或备份文件');
+    await navigator.clipboard.writeText(url.href); toast(`${snapshot.date} 的分享链接已复制`);
+  } catch (error) { toast(`未能复制分享链接：${error.message}`); }
+};
+function incomingShareToken() {
+  if (location.hash.startsWith('#share=')) return location.hash.slice(7);
+  if (/^#shared=[a-zA-Z0-9-]{1,40}$/.test(location.hash)) {
+    try { return sessionStorage.getItem('where-is-my-time.share.' + location.hash.slice(8)); } catch { return null; }
+  }
+  return null;
+}
+$('shareClose').innerHTML = icon('close');
+$('shareClose').onclick = () => $('shareDialog').close();
+let shareLoadVersion = 0;
+async function openSharedLink() {
+  if (!/^#share(?:d)?=/.test(location.hash)) return;
+  const version = ++shareLoadVersion, token = incomingShareToken(), dialog = $('shareDialog');
+  $('shareRecords').replaceChildren(); $('shareLegend').replaceChildren(); $('shareError').hidden = true;
+  $('shareSummary').textContent = '正在读取分享记录…'; $('shareCompare').disabled = true;
+  $('shareCompare').onclick = null;
+  if (!dialog.open) dialog.showModal();
+  try {
+    if (!token) throw new Error('此地址只用于当前标签页，请重新打开原始分享链接');
+    const shared = await decodeSnapshot(token);
+    if (version !== shareLoadVersion) return;
+    $('shareSummary').textContent = shared.date;
+    $('shareRecords').innerHTML = timelineBandsMarkup(shared.data, shared.data.entries, null, false);
+    $('shareLegend').innerHTML = shared.data.events.map(event => `<span class="legend-item"><i class="legend-dot" style="background:${event.color}"></i>${h(event.name)}</span>`).join('');
+    const layout = () => { if(dialog.open) layoutTimelineLabels($('shareTimeline'),true,true); };
+    requestAnimationFrame(layout);
+    document.fonts.ready.then(layout);
+    $('shareCompare').disabled = false;
+    $('shareCompare').onclick = () => {
+      const url = new URL(location.href); url.hash = 'share=' + token;
+      dialog.close(); comparisonController.openShared(shared, url.href);
+    };
+    if (location.hash.startsWith('#share=')) {
+      try {
+        const id = crypto.randomUUID();
+        sessionStorage.setItem('where-is-my-time.share.' + id, token);
+        history.replaceState(history.state, '', location.pathname + location.search + '#shared=' + id);
+      } catch { /* Retain the complete URL if temporary storage is unavailable. */ }
+    }
+  } catch (error) {
+    if (version !== shareLoadVersion) return;
+    $('shareSummary').textContent = '无法打开分享记录'; $('shareError').textContent = error.message; $('shareError').hidden = false;
+  }
+}
+new ResizeObserver(() => { if($('shareDialog').open) layoutTimelineLabels($('shareTimeline'),true,true); }).observe($('shareRecords'));
+window.addEventListener('hashchange', openSharedLink);
+openSharedLink();

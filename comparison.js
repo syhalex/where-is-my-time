@@ -59,12 +59,12 @@ export function layoutComparison(sides, {measure = approximateMeasure} = {}) {
     for (const event of side.data.events) if (used.has(event.id) && !colors.has(normalizeName(event.name))) colors.set(normalizeName(event.name), event.color);
   }
   const names = ['凌晨', '上午', '下午', '晚间'];
-  let top = 116;
+  let top = 28;
   const groups = names.map((name, index) => {
     const start = index * 360, rows = records.map(record => layoutRow(record, start, colors, geometry, measure));
     rows.forEach((row, rowIndex) => {
       row.direction = rowIndex ? 1 : -1;
-      row.y = rowIndex ? rows[rowIndex - 1].y + geometry.barHeight + 38 + labelExtra * 2 + (rowIndex > 1 ? rows[rowIndex - 1].externalHeight : 0) : top + 60 + labelExtra + row.externalHeight;
+      row.y = rowIndex ? rows[rowIndex - 1].y + geometry.barHeight + (labelExtra ? 38 : rowIndex > 1 && rows[rowIndex - 1].externalHeight ? 24 : 12) + labelExtra * 2 + (rowIndex > 1 ? rows[rowIndex - 1].externalHeight : 0) : top + 60 + labelExtra + row.externalHeight;
       row.axisY = rowIndex ? row.y - 14 : top + 44;
     });
     const last = rows.at(-1), height = last.y + geometry.barHeight + last.externalHeight + labelExtra + 28 - top;
@@ -86,7 +86,7 @@ export function calloutConnectorPath(center, edge, labelX, near, direction = 1) 
 
 export function renderComparisonSvg(layout) {
   const {width, height, left, trackWidth, barHeight, groups, records, measure} = layout;
-  let content = `<rect width="${width}" height="${height}" fill="#fff"/>` + text(48, 65, layout.dateTitle, 30, 'font-weight="600"');
+  let content = `<rect width="${width}" height="${height}" fill="#fff"/>`;
   for (const group of groups) {
     const {top, yA, yB, start} = group;
     content += text(48, top + 18, group.name, 17, 'fill="#78866e"');
@@ -97,7 +97,7 @@ export function renderComparisonSvg(layout) {
       labelLines.forEach((line, lineIndex) => { content += text(48, labelTop + lineIndex * 23 + 18, line, 18, 'font-weight="600"'); });
       content += text(48, labelTop + labelLines.length * 23 + 17, record.date, 15, 'fill="#7b877e"');
       const axisY = row.axisY;
-      for (let hour = 0; hour <= 6; hour++) {
+      for (let hour = 0; sideIndex === 0 && hour <= 6; hour++) {
         const x = left + hour / 6 * trackWidth;
         content += text(x, axisY, timeText(start + hour * 60), 15, `fill="#7b8873" text-anchor="${hour === 0 ? 'start' : hour === 6 ? 'end' : 'middle'}"`);
       }

@@ -52,3 +52,13 @@ test('recovery writes preserve the previous active document and support rollback
   const raw=JSON.stringify(current()),storage=memory({[STORAGE_KEY]:raw});writeStoredData(storage,emptyData(),{recovery:true});
   const backup=listRecoverySources(storage)[0];assert.equal(backup.text,raw);writeStoredData(storage,backup.converted,{recovery:true});assert.equal(loadStoredData(storage).data.entries.length,1);
 });
+
+test('read-only share startup never writes even when migration or recovery would be needed',()=>{
+  for(const raw of [JSON.stringify(legacy()),JSON.stringify(current()),'{broken',JSON.stringify({version:999})]){
+    const storage=memory({[LEGACY_KEYS[0]]:raw}),before=[...storage.map];
+    storage.setItem=()=>{throw new Error('share viewer must never write');};
+    const loaded=loadStoredData(storage,{readOnly:true});
+    assert.deepEqual([...storage.map],before);assert.equal(loaded.migrated,false);
+    if(raw.includes('entries')) assert.equal(loaded.data.entries.length,1);
+  }
+});

@@ -30,7 +30,7 @@ function activate(storage,next,metadata={}){
   storage.setItem(STORAGE_KEY,text);
   return data;
 }
-export function loadStoredData(storage){
+export function loadStoredData(storage,{readOnly=false}={}){
   let sourceKey=STORAGE_KEY,raw=null,backupKey=null;
   try{
     raw=storage.getItem(STORAGE_KEY);
@@ -39,11 +39,11 @@ export function loadStoredData(storage){
     // Every attempted upgrade gets an exact original, including malformed documents.
     const storedVersion=(()=>{try{return JSON.parse(raw)?.version;}catch{return null;}})();
     const needsUpgrade=sourceKey!==STORAGE_KEY||storedVersion!==VERSION;
-    if(needsUpgrade)backupKey=preserveOriginal(storage,sourceKey,raw);
+    if(needsUpgrade&&!readOnly)backupKey=preserveOriginal(storage,sourceKey,raw);
     const original=JSON.parse(raw),next=readBackup(original);
     verifyMigration(original,next);
-    if(needsUpgrade)activate(storage,next,{updatedAt:original.updatedAt||new Date().toISOString()});
-    return {data:next,raw,locked:false,migrated:needsUpgrade,backupKey};
+    if(needsUpgrade&&!readOnly)activate(storage,next,{updatedAt:original.updatedAt||new Date().toISOString()});
+    return {data:next,raw,locked:false,migrated:needsUpgrade&&!readOnly,backupKey};
   }catch(error){return {data:emptyData(),raw,locked:true,migrated:false,backupKey,error:error.message};}
 }
 export function writeStoredData(storage,next,{recovery=false}={}){

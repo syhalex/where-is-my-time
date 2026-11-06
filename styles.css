@@ -25,7 +25,7 @@
 .comparison-date-control .date-field{width:100%;flex:none}
 .comparison-date-value{min-width:0;overflow:hidden;text-overflow:ellipsis}
 .comparison-import{display:flex;align-items:center;gap:10px;min-width:0}
-.comparison-import:has(button:not([hidden])){margin-top:10px}
+.comparison-import:has(button:not([hidden])){margin-top:10px;height:var(--control-height);min-height:var(--control-height)}
 .comparison-import span{font-size:12px;color:#7b877e;overflow-wrap:anywhere;min-width:0}
 .comparison-import button{flex-shrink:0;background:#edf2e8}
 .comparison-workspace{flex:1;border:1px solid var(--border);border-radius:12px;overflow:auto;background:#f0f2ed;min-height:120px;scrollbar-gutter:stable}
@@ -1028,3 +1028,18 @@ dialog .manager-row{border:0}
 .dropdown button{min-height:32px;padding:7px 10px;border-radius:5px;font-size:12px;color:#4b613e}
 .dropdown button:hover{background:#f4f7ee}
 @media(max-width:700px){.query-range{grid-template-columns:1fr}}
+
+
+
+.comparison-workspace{position:relative}
+.comparison-empty{position:absolute;inset:0;min-height:0}
+.share-dialog .day-summary{display:flex;align-items:center;flex-wrap:wrap;gap:16px}
+.share-dialog .day-title-group{width:auto;display:flex;align-items:center;justify-content:flex-start;flex-wrap:wrap;gap:14px}
+.share-dialog .day-summary-title{margin:0;line-height:32px}
+.share-dialog #shareSummary{display:flex;align-items:center;line-height:32px}
+.share-dialog .time-block,.share-dialog .time-band-callout{cursor:default}
+.share-dialog .timeline-actions{margin-left:auto}
+
+.comparison-link{display:flex;align-items:center;margin-top:10px;height:var(--control-height);min-height:var(--control-height)}
+.comparison-import span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.comparison-import button{height:var(--control-height);min-height:var(--control-height)}

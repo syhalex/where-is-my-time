@@ -1,3 +1,4 @@
+import {readShareLink} from './sharing.js';
 import { readBackup } from './core.js';
 import { COMPARISON_FONT, MAX_COMPARISON_RECORDS, comparisonDates, layoutComparison, renderComparisonSvg } from './comparison.js';
 
@@ -6,13 +7,13 @@ export function setupComparison({getData, getSelectedDate, toast, icon, beforeOp
   // These backups never enter the application's import, commit or storage paths.
   const sides = [];
   let nextId = 0, preview = null, busy = false, generation = 0, sourceTarget = null, previewFrame = 0, previewTimer = 0;
-  const sources = [{value:'own', name:'自己的记录'}, {value:'backup', name:'导入他人的备份'}];
+  const sources = [{value:'own', name:'自己的记录'}, {value:'backup', name:'导入他人的备份'}, {value:'share', name:'分享链接'}];
   const exportButtons = ['comparisonCopy', 'comparisonPng', 'comparisonSvg', 'comparisonFullscreen'];
-  $('compareRecords').innerHTML = icon('compare') + '对比记录';
+  $('compareRecords').innerHTML = icon('compare') + '对比';
   $('comparisonFullscreen').innerHTML = icon('expand') + '全屏';
   $('comparisonAdd').innerHTML = icon('plus');
   const isLive = side => sides.includes(side);
-  const sourceData = side => side.controls.source.value === 'own' ? getData() : side.controls.source.value === 'backup' ? side.backup : null;
+  const sourceData = side => side.controls.source.value === 'own' ? getData() : side.controls.source.value === 'backup' ? side.backup : side.controls.source.value === 'share' ? side.shared : null;
   const readyRecords = () => sides.filter(side => !side.loading && sourceData(side) && side.controls.date.value);
   const canExport = () => !!preview && !busy && readyRecords().length === sides.length;
 
@@ -36,13 +37,15 @@ export function setupComparison({getData, getSelectedDate, toast, icon, beforeOp
   }
   function refreshSide(side) {
     const c = side.controls, source = c.source.value, imported = source === 'backup';
+    c.linkWrapper.hidden = source !== 'share';
+    c.link.placeholder = side.shared ? '已载入分享记录，可粘贴其他分享链接' : '粘贴完整分享链接';
     c.import.hidden = !imported; c.filename.hidden = !imported;
     c.filename.textContent = side.loading ? '正在读取备份…' : side.filename || '尚未选择备份';
     c.sourceValue.textContent = sources.find(item => item.value === source)?.name || '选择数据来源';
     c.sourceValue.classList.toggle('comparison-source-placeholder', !source);
     const dates = comparisonDates(sourceData(side)), previous = c.date.value;
     c.date.value = dates.includes(previous) ? previous : side.autoDate ? dates.includes(getSelectedDate()) ? getSelectedDate() : dates[0] || '' : '';
-    c.dateValue.textContent = c.date.value ? c.date.value.replaceAll('-', '/') : !source ? '请选择数据来源' : imported && !side.backup ? '请先导入备份' : !dates.length ? '此来源没有记录' : '选择日期';
+    c.dateValue.textContent = c.date.value ? c.date.value.replaceAll('-', '/') : !source ? '请选择数据来源' : source === 'share' && !side.shared ? '请先填写分享链接' : imported && !side.backup ? '请先导入备份' : !dates.length ? '此来源没有记录' : '选择日期';
     c.dateValue.classList.toggle('comparison-source-placeholder', !c.date.value);
     c.dateButton.disabled = !dates.length || side.loading;
     updateButtons();
@@ -78,15 +81,16 @@ export function setupComparison({getData, getSelectedDate, toast, icon, beforeOp
     if (c.source.value === value) return;
     closeDatePicker();
     if (!c.source.value && side.names[''] && !side.names[value]) side.names[value] = side.names[''];
+    ++side.version; side.loading = false;
     c.source.value = value; c.name.value = side.names[value];
     refreshSide(side); invalidate();
   };
   function addRecord(initial = false) {
     if (sides.length >= MAX_COMPARISON_RECORDS) return;
     const card = $('comparisonRecordTemplate').content.firstElementChild.cloneNode(true), id = nextId++;
-    const ids = {title:'comparisonRecordTitle',remove:'comparisonRemove',sourceLabel:'comparisonSourceLabel',source:'comparisonSource',sourceButton:'comparisonSourceButton',sourceValue:'comparisonSourceValue',import:'comparisonImport',filename:'comparisonFilename',file:'comparisonFile',dateLabel:'comparisonDateLabel',date:'comparisonDate',dateButton:'comparisonDateButton',dateValue:'comparisonDateValue',name:'comparisonName'};
+    const ids = {title:'comparisonRecordTitle',remove:'comparisonRemove',sourceLabel:'comparisonSourceLabel',source:'comparisonSource',sourceButton:'comparisonSourceButton',sourceValue:'comparisonSourceValue',import:'comparisonImport',filename:'comparisonFilename',file:'comparisonFile',dateLabel:'comparisonDateLabel',date:'comparisonDate',dateButton:'comparisonDateButton',dateValue:'comparisonDateValue',name:'comparisonName',linkWrapper:'comparisonLinkWrapper',link:'comparisonLink'};
     const c = Object.fromEntries(Object.entries(ids).map(([field,prefix]) => { const control = card.querySelector(`[data-field="${field}"]`); control.id = prefix + id; return [field,control]; }));
-    const side = {id,card,controls:c,autoDate:initial,backup:null,filename:'',loading:false,version:0,names:{'':'',own:'',backup:''}};
+    const side = {id,card,controls:c,autoDate:initial,backup:null,filename:'',loading:false,version:0,names:{'':'',own:'',backup:'',share:''}};
     card.dataset.recordId = id; card.setAttribute('aria-labelledby', c.title.id);
     c.sourceButton.setAttribute('aria-labelledby', `${c.sourceLabel.id} ${c.sourceValue.id}`);
     c.dateButton.setAttribute('aria-labelledby', `${c.dateLabel.id} ${c.dateValue.id}`);
@@ -111,6 +115,26 @@ export function setupComparison({getData, getSelectedDate, toast, icon, beforeOp
       });
     };
     c.name.oninput = () => { side.names[c.source.value] = c.name.value; invalidate({delay:120}); };
+    let linkTimer;
+    c.link.oninput = () => {
+      clearTimeout(linkTimer);
+      const version = ++side.version, value = c.link.value.trim();
+      side.shared = null; side.loading = !!value; c.date.value = '';
+      refreshSide(side); invalidate();
+      if (!value) return;
+      linkTimer = setTimeout(async () => {
+        if (version !== side.version || !isLive(side) || c.source.value !== 'share') return;
+        try {
+          const shared = await readShareLink(value, id => sessionStorage.getItem('where-is-my-time.share.' + id));
+          if (version !== side.version || !isLive(side)) return;
+          side.shared = shared.data; c.date.value = shared.date;
+        } catch (cause) {
+          if (version === side.version && isLive(side)) error(cause.message, side);
+        } finally {
+          if (version === side.version && isLive(side)) { side.loading = false; refreshSide(side); invalidate({clearError:false}); }
+        }
+      }, 300);
+    };
     c.import.onclick = () => { c.file.value = ''; c.file.click(); };
     c.file.onchange = async event => {
       const file = event.target.files[0]; if (!file) return;
@@ -200,4 +224,18 @@ export function setupComparison({getData, getSelectedDate, toast, icon, beforeOp
   $('comparisonFullscreenDialog').addEventListener('close', () => afterDialogExit($('comparisonFullscreenDialog'), () => $('comparisonFullscreenPreview').replaceChildren()));
   dialog.addEventListener('close', () => { if (dialog.open) return; ++generation; cancelAnimationFrame(previewFrame); clearTimeout(previewTimer); closeDatePicker(); closeDropdown('comparisonSourceDropdown',false); });
   addRecord(true); addRecord();
+  return {
+    openShared(shared, link) {
+      beforeOpen();
+      for (const side of sides) { ++side.version; side.card.remove(); }
+      sides.length = 0;
+      addRecord(true); addRecord();
+      const own = sides[0], other = sides[1];
+      own.controls.name.value = '我的记录'; own.names.own = '我的记录';
+      other.shared = shared.data; other.controls.link.value = link || '';
+      other.controls.source.value = 'share'; other.controls.date.value = shared.date;
+      other.controls.name.value = '分享的记录'; other.names.share = '分享的记录';
+      sides.forEach(refreshSide); dialog.showModal(); invalidate();
+    }
+  };
 }
