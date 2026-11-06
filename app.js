@@ -1,3 +1,4 @@
+import {renderExportPng} from './image-export.js';
 import {snapshotDay, encodeSnapshot, decodeSnapshot} from './sharing.js';
 import { PALETTE, OTHER_TIME_EVENT, emptyData, normalizeName, dateKey, fromKey, addDays, timeText, parseTime, durationText, validDate, entriesOn, getEvent, getCategory, totals, categoryTotals, statisticsEntries, categoryFocus, saveCategory, deleteCategory, continuationRange, snapMinute, nextEventColor, randomColorOptions, heatColor, hexToHsv, hsvToHex, recordedMinutes, pruneUnusedCategories, groupEntries, recentEvents, queryDuration, restoreEntry, saveEntry, renameEvent, validateData, readBackup, mergeData } from './core.js';
 import {STORAGE_KEY,loadStoredData,writeStoredData,listRecoverySources,preserveOriginal} from './storage.js';
@@ -862,43 +863,10 @@ async function createTimelineExportPreview(modules,exportDate){
   try{
     if(document.fonts)await document.fonts.ready;
     layoutTimelineLabels(surface,true);
-    const height=Math.ceil(surface.offsetHeight),content=surface.cloneNode(true);
-    Object.assign(content.style,{position:'relative',left:'0',top:'0',height:`${height}px`,overflow:'hidden'});
-    content.setAttribute('xmlns','http://www.w3.org/1999/xhtml');
-    const style=document.createElement('style');
-    style.textContent=[...document.styleSheets].flatMap(sheet=>{try{return [...sheet.cssRules].map(rule=>rule.cssText);}catch{return [];}}).join('\n');content.prepend(style);
-    const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('width',width);svg.setAttribute('height',height);svg.setAttribute('viewBox',`0 0 ${width} ${height}`);
-    const foreign=document.createElementNS('http://www.w3.org/2000/svg','foreignObject');foreign.setAttribute('x','0');foreign.setAttribute('y','0');foreign.setAttribute('width',width);foreign.setAttribute('height',height);foreign.append(content);svg.append(foreign);
-    const image=new Image();image.decoding='sync';
-    await new Promise((resolve,reject)=>{
-      image.onload=resolve;image.onerror=()=>reject(new Error('浏览器无法读取导出图片'));
-      image.src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(new XMLSerializer().serializeToString(svg));
-    });
-    const preview={image,width,height,date:exportDate};
-    // Preview the actual PNG used by both clipboard and download, including on iOS.
-    const blob=await exportPng(preview);preview.image=null;preview.url=URL.createObjectURL(blob);
-    return preview;
+    const height=Math.ceil(surface.offsetHeight);
+    const blob=await renderExportPng(surface,{width,height});
+    return {width,height,date:exportDate,png:Promise.resolve(blob),url:URL.createObjectURL(blob)};
   }finally{surface.remove();}
-}
-function exportPng(preview) {
-  if(preview.png)return preview.png;
-  preview.png=(async()=>{
-    const {image,width,height}=preview;
-    // iOS canvas limits are lower than desktop limits, independent of viewport width.
-    const ios=/iPad|iPhone|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
-    const maxPixels=ios?3000000:32000000,maxSide=ios?8192:16384;
-    const scale=Math.min(2,Math.sqrt(maxPixels/(width*height)),maxSide/width,maxSide/height),canvas=document.createElement('canvas');
-    canvas.width=Math.max(1,Math.floor(width*scale));canvas.height=Math.max(1,Math.floor(height*scale));
-    try{
-      const context=canvas.getContext('2d');if(!context)throw new Error('浏览器无法创建图片');
-      context.fillStyle='#fff';context.fillRect(0,0,canvas.width,canvas.height);
-      // Wait for the SVG image's rendering frame as well as its load event on WebKit.
-      await new Promise(requestAnimationFrame);
-      context.drawImage(image,0,0,canvas.width,canvas.height);
-      const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));if(!blob)throw new Error('图片生成失败');return blob;
-    }finally{canvas.width=canvas.height=0;}
-  })().catch(error=>{preview.png=null;throw error;});
-  return preview.png;
 }
 async function exportImage(copy=false) {
   if(exportForm.getAttribute('aria-busy')==='true'||!exportPreviewData)return;
@@ -909,9 +877,9 @@ async function exportImage(copy=false) {
   button.setAttribute('aria-busy','true');exportForm.setAttribute('aria-busy','true');
   try{
     // Give ClipboardItem the promise during the click so user activation is retained.
-    if(copy){await navigator.clipboard.write([new ClipboardItem({'image/png':exportPng(preview)})]);toast('图片已复制');}
+    if(copy){await navigator.clipboard.write([new ClipboardItem({'image/png':preview.png})]);toast('图片已复制');}
     else{
-      const blob=await exportPng(preview),url=URL.createObjectURL(blob),link=document.createElement('a');
+      const blob=await preview.png,url=URL.createObjectURL(blob),link=document.createElement('a');
       link.href=url;link.download=`WhereIsMyTime-${preview.date}.png`;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
       $('timelineExportDialog').close();toast('图片已导出');
     }
