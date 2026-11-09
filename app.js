@@ -1,9 +1,10 @@
-import {renderExportPng} from './image-export.js';
 import {snapshotDay, encodeSnapshot, decodeSnapshot} from './sharing.js';
-import { PALETTE, OTHER_TIME_EVENT, emptyData, normalizeName, dateKey, fromKey, addDays, timeText, parseTime, durationText, validDate, entriesOn, getEvent, getCategory, totals, categoryTotals, statisticsEntries, categoryFocus, saveCategory, deleteCategory, continuationRange, snapMinute, nextEventColor, randomColorOptions, heatColor, hexToHsv, hsvToHex, recordedMinutes, pruneUnusedCategories, groupEntries, recentEvents, queryDuration, restoreEntry, saveEntry, renameEvent, validateData, readBackup, mergeData } from './core.js';
-import {STORAGE_KEY,loadStoredData,writeStoredData,listRecoverySources,preserveOriginal} from './storage.js';
+import { PALETTE, OTHER_TIME_EVENT, emptyData, normalizeName, dateKey, fromKey, addDays, timeText, parseTime, durationText, validDate, entriesOn, getEvent, getCategory, totals, categoryTotals, statisticsEntries, categoryFocus, saveCategory, deleteCategory, continuationRange, snapMinute, nextEventColor, randomColorOptions, heatColor, hexToHsv, hsvToHex, recordedMinutes, pruneUnusedCategories, groupEntries, recentEvents, queryDuration, restoreEntry, saveEntry, renameEvent, validateData } from './core.js';
+import {STORAGE_KEY,loadStoredData,writeStoredData} from './storage.js';
+import {setupBackups} from './backup-ui.js';
 import {setupComparison} from './comparison-ui.js';
 import {calloutConnectorPath} from './comparison.js';
+import {setupTimelineExport} from './timeline-export-ui.js';
 
 const $ = id => document.getElementById(id);
 const h = value => String(value).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -37,13 +38,14 @@ document.querySelectorAll('[data-time-input]').forEach(field=>{
 });
 document.querySelectorAll('.select-chevron').forEach(element=>element.innerHTML=icon('down'));
 document.querySelectorAll('.date-icon').forEach(element=>element.innerHTML=icon('calendar'));
-$('querySearchClear').innerHTML=icon('close');document.querySelector('.search-icon').innerHTML=icon('search');
+document.querySelectorAll('.search-icon').forEach(element=>element.innerHTML=icon('search'));
+for(const id of ['querySearchClear','managerSearchClear'])$(id).innerHTML=icon('close');
 const RECENT_KEY = 'where-is-my-time.recent-events.v1';
 let recentSelections = [], draftCategories = [];
 const entryCategories = () => [...data.categories,...draftCategories.filter(c=>!getCategory(data,c.id))];
 const FOCUS_KEY = 'where-is-my-time.focus-category.v1';
 let data = emptyData(), rawStorage = null, persistenceLocked = false, selected = dateKey(new Date()), cursor = selected, view = 'day', filter = null;
-let editing = null, modalColor = PALETTE[0], imported = null, toastTimer, drag = null, confirmAction = null;
+let editing = null, modalColor = PALETTE[0], toastTimer, drag = null, confirmAction = null;
 let pickerCursor = selected, pickerMonthMode = false, pickerTarget = 'record', pickerOptions = null, categoryTarget = null, categoryFormColor = PALETTE[0], colorTarget = null, hoverTrack = null;
 const categoryEventIds = new Set();
 let aggregation = 'events', yearCategory = 'study', modalColorManual = false, modalMatchedName = null, modalCategoryId = null;
@@ -85,9 +87,9 @@ function toast(message, actionLabel, action) {
   raiseToast();toastTimer = setTimeout(hideToast, action ? 9000 : 5000);
 }
 for(const name of ['toggle','close'])document.addEventListener(name,event=>{if(event.target instanceof HTMLDialogElement)raiseToast();},true);
-function commit(next, allowRecovery = false) {
-  if (persistenceLocked && !allowRecovery) { toast('本地数据无法读取，请先导出备份，再导入有效备份'); return false; }
-  try { next=writeStoredData(localStorage,pruneUnusedCategories(next),{recovery:allowRecovery}); }
+function commit(next, options) {
+  if (persistenceLocked && !options?.recovery) { toast('本地数据无法读取，请先导出备份，再导入有效备份'); return false; }
+  try { next=writeStoredData(localStorage,pruneUnusedCategories(next),options); }
   catch(error){toast(`未能保存记录：${error.message}。请保留备份并使用恢复入口`);return false;}
   data = next; persistenceLocked = false;$('storageNotice').hidden=true;
   if (!validFilter()) filter = null;
@@ -149,8 +151,9 @@ function categoryStatMarkup(entries){
   return `<div class="category-stat"><span class="stat-label">分类占比</span><div class="category-share-bar">${categories.map(([id,minutes])=>`<span style="background:${getCategory(data,id)?.color||'#BEC7B5'};flex:${minutes}" title="${h(getCategory(data,id)?.name||'未分类')} ${spending?Math.round(minutes/spending*100):0}%"></span>`).join('')}</div><div class="category-percentages">${visible.map(([id,minutes])=>`<span><i style="background:${getCategory(data,id)?.color||'#BEC7B5'}"></i>${h(getCategory(data,id)?.name||'未分类')}<strong>${spending?Math.round(minutes/spending*100):0}%</strong></span>`).join('')}</div></div>`;
 }
 function focusStatMarkup(entries,exportControl=false){
-  const focus=categoryFocus(data,entries,focusCategory),category=displayGroup(focusCategory,'categories'),percent=`${Number((focus.share*100).toFixed(1))}%`;
-  return `<div class="focus-stat"><div class="focus-heading"><span class="stat-label">关注分类</span><button type="button" ${exportControl?'data-export-category="focus"':'id="focusCategoryButton"'} class="focus-category-trigger" aria-label="选择关注分类" aria-haspopup="listbox" aria-controls="focusDropdown" aria-expanded="false"><i class="legend-dot" style="background:${category.color}"></i><span>${h(category.name)}</span>${icon('down')}</button></div><div class="focus-value"><span class="stat-value">${durationText(focus.minutes)}</span><span class="focus-percent">${percent}</span></div><div class="focus-share-track" role="img" aria-label="${h(category.name)}占比 ${percent}"><span style="width:${focus.share*100}%;background:${category.color}"></span></div></div>`;
+  const annual=view==='year'&&!exportControl,categoryId=annual?yearCategory:focusCategory;
+  const focus=categoryFocus(data,entries,categoryId),category=displayGroup(categoryId,'categories'),percent=`${Number((focus.share*100).toFixed(1))}%`;
+  return `<div class="focus-stat"><div class="focus-heading"><span class="stat-label">${annual?'年度分类':'关注分类'}</span><button type="button" ${exportControl?'data-export-category="focus"':'id="focusCategoryButton"'} class="focus-category-trigger" aria-label="选择${annual?'年度':'关注'}分类" aria-haspopup="listbox" aria-controls="${annual?'filterDropdown':'focusDropdown'}" aria-expanded="false"><i class="legend-dot" style="background:${category.color}"></i><span>${h(category.name)}</span>${icon('down')}</button></div><div class="focus-value"><span class="stat-value">${durationText(focus.minutes)}</span><span class="focus-percent">${percent}</span></div><div class="focus-share-track" role="img" aria-label="${h(category.name)}占比 ${percent}"><span style="width:${focus.share*100}%;background:${category.color}"></span></div></div>`;
 }
 function daysStatMarkup(entries){
   return `<div class="days-stat"><span class="stat-label">记录天数</span><span class="stat-value">${new Set(entries.map(entry=>entry.date)).size}<span class="stat-unit">天</span></span></div>`;
@@ -158,7 +161,9 @@ function daysStatMarkup(entries){
 function renderOverview() {
   closeDropdown('filterDropdown', false);
   closeDropdown('focusDropdown', false);
-  document.querySelectorAll('[data-view]').forEach(b => { b.setAttribute('aria-selected', String(b.dataset.view === view)); b.tabIndex = b.dataset.view === view ? 0 : -1; });
+  const activeTab=viewTabs.findIndex(tab=>tab.dataset.view===view);
+  viewTabs.forEach((tab,index)=>{tab.setAttribute('aria-selected',String(index===activeTab));tab.tabIndex=index===activeTab?0:-1;});
+  viewSwitch.style.setProperty('--view-index',activeTab);
   const entries = periodEntries(), groups = displayTotals(entries), d = fromKey(cursor), [first, last] = periodRange();
   if (yearCategory && !getCategory(data, yearCategory)) yearCategory = data.categories[0]?.id || null;
   if (focusCategory && !getCategory(data,focusCategory)) focusCategory = data.categories[0]?.id || null;
@@ -179,7 +184,7 @@ function renderOverview() {
   $('legend').innerHTML = view === 'year' ? heatmapLegend(filterEvent.color) : groups.slice(0, 8).map(([id, mins]) => legendItem(id, mins)).join('') || '<span class="legend-item"><span class="legend-empty"></span>暂无事件</span>';
   $('periodTotal').textContent = `${entries.filter(entry=>!entry.automatic).length} 条记录`;
   if (view === 'month') renderMonth(); else if (view === 'week') renderWeek(); else if (view === 'day') renderDayOverview(entries); else renderYear();
-  if($('timelineExportDialog').open){renderExportWidgets();updateExportSelection();}
+  timelineExport.refresh();
 }
 function renderMonth() {
   const d = fromKey(cursor), first = dateKey(new Date(d.getFullYear(), d.getMonth(), 1, 12)), start = weekStart(first), next = dateKey(new Date(d.getFullYear(), d.getMonth() + 1, 1, 12));
@@ -402,15 +407,27 @@ $('entryEventChoices').addEventListener('click',event=>{
 });
 function renderEventManager() {
   const counts = new Map(); data.entries.forEach(e => counts.set(e.eventId, (counts.get(e.eventId) || 0) + 1));
-  $('eventManager').innerHTML = sortedEvents().map(t => `<div class="manager-row" data-event="${h(t.id)}"><button class="manager-color-button" style="background:${t.color}" data-event-color="${h(t.id)}" aria-label="修改${h(t.name)}的颜色"></button><div class="manager-details"><input class="manager-name" value="${h(t.name)}" maxlength="80" aria-label="修改事件名称"><button class="category-assignment" data-assign-category="${h(t.id)}"><i style="background:${getCategory(data, t.categoryId)?.color || '#BEC7B5'}"></i>${h(getCategory(data, t.categoryId)?.name || '未分类')}${icon('down')}</button></div><span class="manager-count">${counts.get(t.id) || 0} 条</span><button class="icon-button danger" data-delete-event="${h(t.id)}" aria-label="删除事件${h(t.name)}">${icon('trash')}</button></div>`).join('') || '<div class="empty-events">还没有事件</div>';
+  $('eventManager').innerHTML = sortedEvents().map(t => `<div class="manager-row" data-event="${h(t.id)}"><button class="manager-color-button" style="background:${t.color}" data-event-color="${h(t.id)}" aria-label="修改${h(t.name)}的颜色"></button><div class="manager-details"><input class="manager-name" value="${h(t.name)}" maxlength="80" aria-label="修改事件名称"><button class="category-assignment" data-assign-category="${h(t.id)}"><i style="background:${getCategory(data, t.categoryId)?.color || '#BEC7B5'}"></i>${h(getCategory(data, t.categoryId)?.name || '未分类')}${icon('down')}</button></div><span class="manager-count">${counts.get(t.id) || 0} 条</span><button class="icon-button danger" data-delete-event="${h(t.id)}" aria-label="删除事件${h(t.name)}">${icon('trash')}</button></div>`).join('') + '<div class="empty-events" hidden></div>';
   renderCategoryManager();
 }
 
 function renderCategoryManager() {
-  $('categoryList').innerHTML = data.categories.map(c => `<div class="manager-row" data-category="${h(c.id)}"><button class="manager-color-button" style="background:${c.color}" data-category-edit-color="${h(c.id)}" aria-label="修改分类${h(c.name)}的颜色"></button><input class="manager-name category-name" value="${h(c.name)}" maxlength="30" aria-label="修改分类${h(c.name)}的名称"><button class="manager-count manager-count-button" data-category-events="${h(c.id)}" aria-label="查看${h(c.name)}分类中的事件" aria-haspopup="dialog" aria-controls="categoryEventsDropdown" aria-expanded="false">${data.events.filter(item => item.categoryId === c.id).length} 个事件</button><button class="icon-button danger" data-delete-category="${h(c.id)}" aria-label="删除分类${h(c.name)}">${icon('trash')}</button></div>`).join('');
+  $('categoryList').innerHTML = data.categories.map(c => `<div class="manager-row" data-category="${h(c.id)}"><button class="manager-color-button" style="background:${c.color}" data-category-edit-color="${h(c.id)}" aria-label="修改分类${h(c.name)}的颜色"></button><input class="manager-name category-name" value="${h(c.name)}" maxlength="30" aria-label="修改分类${h(c.name)}的名称"><button class="manager-count manager-count-button" data-category-events="${h(c.id)}" aria-label="查看${h(c.name)}分类中的事件" aria-haspopup="dialog" aria-controls="categoryEventsDropdown" aria-expanded="false">${data.events.filter(item => item.categoryId === c.id).length} 个事件</button><button class="icon-button danger" data-delete-category="${h(c.id)}" aria-label="删除分类${h(c.name)}">${icon('trash')}</button></div>`).join('') + '<div class="empty-events" hidden></div>';
   $('managerNewCategory').disabled=!data.events.length;
   $('managerNewCategory').innerHTML=icon('plus')+'新建分类';
+  filterManagerRows();
 }
+function filterManagerRows(){
+  const field=$('managerSearch'), search=normalizeName(field.value).toLocaleLowerCase();
+  $('managerSearchClear').hidden=!field.value;
+  for(const [id,kind] of [['eventManager','事件'],['categoryList','分类']]){
+    const list=$(id), rows=[...list.querySelectorAll('.manager-row')], empty=list.querySelector('.empty-events');
+    for(const row of rows)row.hidden=!normalizeName(row.querySelector('.manager-name').defaultValue).toLocaleLowerCase().includes(search);
+    if(empty){empty.hidden=rows.some(row=>!row.hidden);empty.textContent=search?`没有匹配的${kind}`:`还没有${kind}`;}
+  }
+}
+$('managerSearch').oninput=filterManagerRows;
+$('managerSearchClear').onclick=()=>{$('managerSearch').value='';filterManagerRows();$('managerSearch').focus();};
 function openCategoryEvents(id,anchor) {
   const category=getCategory(data,id);if(!category)return;
   $('categoryEventsTitle').textContent=category.name;
@@ -420,6 +437,8 @@ function openCategoryEvents(id,anchor) {
 function setManagerTab(tabName) {
   document.querySelectorAll('[data-manager-tab]').forEach(b => b.setAttribute('aria-selected', String(b.dataset.managerTab === tabName)));
   $('eventManager').hidden = tabName !== 'events'; $('categoryManager').hidden = tabName !== 'categories';
+  const label=tabName==='events'?'搜索事件':'搜索分类';
+  $('managerSearch').placeholder=label;$('managerSearch').setAttribute('aria-label',label);
 }
 function openCategoryPicker(id,anchor) {
   categoryTarget={kind:'event',id};const selectedId=getEvent(data,id)?.categoryId||null;
@@ -567,55 +586,25 @@ function stepTime(id, step) {
   if(id.startsWith('query'))syncQueryTime(id);else updateDuration();
 }
 function askConfirm(title, action) { $('confirmTitle').textContent = title; confirmAction = action; $('confirmDialog').showModal(); }
+function renderYearCategoryChoices(){
+  $('filterChoices').setAttribute('aria-label','年度分类');
+  $('filterChoices').innerHTML=[...data.categories,{id:'',name:'未分类',color:'#BEC7B5'}].map(category=>pickerOption(category,`data-year-category="${h(category.id)}"`,(category.id||null)===yearCategory)).join('');
+}
 function renderFilters() {
-  if(view==='year'){
-    $('filterChoices').setAttribute('aria-label','年度分类');
-    $('filterChoices').innerHTML=[...data.categories,{id:'',name:'未分类',color:'#BEC7B5'}].map(category=>pickerOption(category,`data-year-category="${h(category.id)}"`,(category.id||null)===yearCategory)).join('');return;
-  }
+  if(view==='year'){renderYearCategoryChoices();return;}
   $('filterChoices').setAttribute('aria-label',aggregation==='events'?'筛选事件':'筛选分类');
   const choices=aggregation==='events'?sortedEvents():[...data.categories,{id:null,name:'未分类',color:'#BEC7B5'}];
   $('filterChoices').innerHTML=`<button class="filter-choice" data-filter-all="true" aria-selected="${!filter}"><span>${aggregation==='events'?'全部事件':'全部分类'}</span>${!filter?`<span class="checkmark">${icon('check')}</span>`:''}</button>`+choices.map(item=>pickerOption(item,`data-filter-choice="${h(item.id||'')}" data-filter-kind="${aggregation}"`,filter?.kind===aggregation&&filter.id===item.id)).join('');
 }
-function downloadBackup() {
-  const body = persistenceLocked && rawStorage ? rawStorage : JSON.stringify({ ...data, exportedAt: new Date().toISOString() }, null, 2);
-  const url = URL.createObjectURL(new Blob([body], { type: 'application/json' })), anchor = document.createElement('a'); anchor.href = url; anchor.download = `WhereIsMyTime-${persistenceLocked ? 'recovery' : 'backup'}-${dateKey(new Date())}.json`; anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); closeBackup(); toast('备份已导出');
-}
-function closeBackup() { $('backupMenu').hidden = true; $('backupButton').setAttribute('aria-expanded', 'false'); }
-
-// Recovery reads old keys without modifying or removing them.
-let recoverySources=[];
-const recoveryButton=document.createElement('button');recoveryButton.id='recoverButton';recoveryButton.textContent='查询本机备份';$('backupMenu').append(recoveryButton);
-const recoveryDialog=document.createElement('dialog');recoveryDialog.id='recoveryDialog';recoveryDialog.className='wide-dialog';
-recoveryDialog.innerHTML='<div class="dialog-heading"><h2>查询本机备份</h2><button class="icon-button" data-close="recoveryDialog" aria-label="关闭"></button></div><div id="recoverySources"></div><p id="recoveryError" class="form-error" role="alert" hidden></p>';
-document.body.append(recoveryDialog);
-function findRecoverySources(){
-  return listRecoverySources(localStorage);
-}
-recoveryButton.onclick=()=>{
-  closeBackup();$('recoveryError').hidden=true;
-  try{recoverySources=findRecoverySources();$('recoverySources').innerHTML=recoverySources.map((source,index)=>{
-    const dates=(source.converted?.entries||[]).map(entry=>entry.date).sort();
-    return `<div class="manager-row"><div class="manager-details"><strong>${source.converted?`${source.converted.entries.length} 条记录`:'原始数据'}</strong><p>${h(dates.length?`${dates[0]} - ${dates.at(-1)}`:source.error||'空备份')}</p><p>${h(source.key)}</p></div><button class="button quiet small" data-export-recovery="${index}">保留原件</button><button class="button primary small" data-recover-source="${index}" ${source.converted?'':'disabled'}>恢复</button></div>`;
-  }).join('')||'<p>此地址未找到旧记录。</p>';recoveryDialog.showModal();}catch(error){toast(error.message);}
-};
-recoveryDialog.addEventListener('click',event=>{
-  const button=event.target.closest('button');if(!button)return;
-  if(button.hasAttribute('data-export-recovery')){
-    const source=recoverySources[Number(button.dataset.exportRecovery)],url=URL.createObjectURL(new Blob([source.text],{type:'application/json'})),link=document.createElement('a');
-    link.href=url;link.download=`WhereIsMyTime-original-v${source.raw?.version||'unknown'}.json`;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
-  }
-  if(button.hasAttribute('data-recover-source')){
-    try{
-      const source=recoverySources[Number(button.dataset.recoverSource)],next=data.entries.length?mergeData(data,source.converted):source.converted;
-      preserveOriginal(localStorage,source.key,source.text);
-      if(commit(next,true)){if(next.entries.length)selectDate(next.entries.at(-1).date);recoveryDialog.close();toast(`已恢复 ${source.converted.entries.length} 条记录，原始数据已保留`);}
-    }catch(error){$('recoveryError').textContent=error.message;$('recoveryError').hidden=false;}
-  }
-});
-$('storageRestore').onclick=()=>recoveryButton.click();
-$('storageExport').onclick=downloadBackup;
 function showStorageFailure(message){$('storageNotice').hidden=false;$('storageNoticeText').textContent=`数据未能启用，原始记录已保留。${message||'请使用恢复入口或导出原件'}`;}
 
+const {closeMenu:closeBackup}=setupBackups({$,h,toast,openDatePicker,closeDatePicker:()=>closeDropdown('dateDropdown',false),getData:()=>data,getLocked:()=>persistenceLocked,getRaw:()=>rawStorage,
+  restore(next,expectedRaw,fromLocal){
+    if(!commit(next,{recovery:true,expectedRaw}))return false;
+    if(fromLocal&&data.entries.length)selectDate(data.entries.at(-1).date);
+    return true;
+  }
+});
 $('manageEvents').innerHTML = icon('events') + '事件与分类'; $('backupButton').innerHTML = icon('archive') + '备份与分享' + icon('down'); $('queryButton').innerHTML=icon('search')+'查询'; $('addEntry').innerHTML = icon('plus') + '记录时间';
 const comparisonController = setupComparison({getData:()=>data,getSelectedDate:()=>selected,toast,icon,openDatePicker,openDropdown,closeDropdown,afterDialogExit,finishDialogCleanup,closeDatePicker:()=>closeDropdown('dateDropdown',false),beforeOpen:()=>{closeBackup();for(const id of dropdownAnchors.keys())closeDropdown(id,false);}});
 const timelineFullscreen=$('timelineFullscreenDialog'),timelineCard=$('timelineCard'),timelineFullscreenButton=$('timelineFullscreenButton');
@@ -691,32 +680,16 @@ timelineFullscreen.addEventListener('close',()=>{
   cancelDrag();clearHover();afterDialogExit(timelineFullscreen,restoreTimeline);
 });
 updateTimelineFullscreenButton();
-$('timelineDownloadButton').innerHTML=icon('backup');
-$('timelineDownloadButton').onclick=()=>{
-  finishDialogCleanup($('timelineExportDialog'));
-  exportForm.reset();
-  const mode=['year','day'].includes(view)?view:'month';
-  exportRanges.categories=mode;exportRanges.focus=mode;exportRanges.days=view==='year'?'year':'month';
-  $('exportViewLabel').textContent=`当前${{year:'年',month:'月',week:'周',day:'日'}[view]}视图`;
-  $('exportOverviewModule').closest('.export-widget-option').hidden=view==='year';
-  renderExportWidgets();
-  $('timelineExportDialog').showModal();
-  updateExportSelection();
-};
-const exportForm=$('timelineExportForm');
-let exportPreviewData=null,exportPreviewVersion=0,exportPreviewFrame=0;
-const exportRanges={categories:'month',focus:'month',days:'month'};
-let exportRangeTarget=null;
 function exportPeriodTitle(mode){
   const date=fromKey(cursor),year=date.getFullYear();
   return mode==='year'?`${year}年`:mode==='month'?`${year}年${date.getMonth()+1}月`:`${year}年${date.getMonth()+1}月${date.getDate()}日`;
 }
-function buildExportStat(kind){
-  const [start,end]=periodRange(exportRanges[kind]),records=statisticalRecords().entries.filter(entry=>entry.date>=start&&entry.date<end);
+function buildExportStat(kind,mode){
+  const [start,end]=periodRange(mode),records=statisticalRecords().entries.filter(entry=>entry.date>=start&&entry.date<end);
   const holder=document.createElement('div');
   holder.innerHTML=kind==='focus'?focusStatMarkup(records,true):kind==='categories'?categoryStatMarkup(filteredEntries(records)):daysStatMarkup(filteredEntries(records));
   const content=holder.firstElementChild,label=content.querySelector('.stat-label');
-  label.textContent=`${exportPeriodTitle(exportRanges[kind])} ${label.textContent}`;
+  label.textContent=`${exportPeriodTitle(mode)} ${label.textContent}`;
   return content;
 }
 function buildExportDistribution(exportDate){
@@ -733,174 +706,9 @@ function buildExportYear(){
   card.innerHTML=`<div class="overview-toolbar"><h2>${year}年</h2><button type="button" class="export-year-category" data-export-category="year" aria-label="选择年度分类" aria-haspopup="listbox" aria-expanded="false"><i class="legend-dot" style="background:${category.color}"></i><span>${h(category.name)}</span>${icon('down')}</button></div><div class="overview-body">${yearChartMarkup()}</div><div class="overview-footer"><div class="legend">${heatmapLegend(category.color)}</div></div>`;
   return card;
 }
-function renderExportWidgets(){
-  const sources={timeline:$('timeBands'),entries:$('entryList'),overview:$('overview')};
-  for(const button of exportForm.querySelectorAll('[data-export-range]'))button.innerHTML=`${exportPeriodTitle(exportRanges[button.dataset.exportRange])}${icon('down')}`;
-  for(const widget of exportForm.querySelectorAll('[data-export-widget]')){
-    const kind=widget.dataset.exportWidget;
-    const content=kind==='distribution'?buildExportDistribution(selected):kind==='year'?buildExportYear():Object.hasOwn(exportRanges,kind)?buildExportStat(kind):sources[kind].cloneNode(true);
-    if(widget.dataset.exportWidget==='timeline')content.append($('dayLegend').cloneNode(true));
-    content.removeAttribute('id');content.querySelectorAll('[id]').forEach(element=>element.removeAttribute('id'));
-    content.querySelectorAll('.stat-label,.continue-marker,.hover-cursor,.selection,.drag-readout,.time-band-callouts,.timeline-actions').forEach(element=>element.remove());
-    content.querySelectorAll('.needs-callout').forEach(element=>element.classList.remove('needs-callout'));
-    if(widget.dataset.exportWidget==='entries'){
-      [...content.children].slice(3).forEach(element=>element.remove());
-      if(!entriesOn(data,selected).length)content.textContent='暂无记录';
-    }
-    if(kind==='year')content.querySelectorAll('.overview-body,.overview-footer').forEach(element=>element.inert=true);
-    widget.replaceChildren(content);
-  }
-}
-exportForm.addEventListener('click',event=>{
-  const control=event.target.closest('button');
-  if(control?.dataset.exportCategory){
-    event.stopPropagation();
-    if(control.dataset.exportCategory==='focus'){renderFocusChoices();openDropdown('focusDropdown',control);}
-    else{
-      $('filterChoices').setAttribute('aria-label','年度分类');
-      $('filterChoices').innerHTML=[...data.categories,{id:'',name:'未分类',color:'#BEC7B5'}].map(category=>pickerOption(category,`data-year-category="${h(category.id)}"`,(category.id||null)===yearCategory)).join('');
-      openDropdown('filterDropdown',control);
-    }
-    return;
-  }
-  if(control?.dataset.exportRange){
-    event.stopPropagation();exportRangeTarget=control.dataset.exportRange;
-    const modes=exportRangeTarget==='days'?['year','month']:['year','month','day'];
-    $('exportRangeChoices').innerHTML=modes.map(mode=>`<button type="button" class="filter-choice" data-export-period="${mode}" aria-selected="${exportRanges[exportRangeTarget]===mode}"><span>当前${{year:'年',month:'月',day:'日'}[mode]}</span><span class="export-period-value">${exportPeriodTitle(mode)}</span><span class="checkmark">${exportRanges[exportRangeTarget]===mode?icon('check'):''}</span></button>`).join('');
-    openDropdown('exportRangeDropdown',control,'start');return;
-  }
-  if(event.target.closest('input,button,label'))return;
-  const checkbox=event.target.closest('.export-widget-option')?.querySelector('input[name="modules"]');
-  if(checkbox){checkbox.checked=!checkbox.checked;updateExportSelection();}
-});
-$('exportRangeDropdown').addEventListener('click',event=>{
-  const choice=event.target.closest('[data-export-period]');if(!choice)return;
-  const target=exportRangeTarget;exportRanges[target]=choice.dataset.exportPeriod;
-  closeDropdown('exportRangeDropdown',false);renderExportWidgets();updateExportSelection();
-  exportForm.querySelector(`[data-export-range="${target}"]`).focus({preventScroll:true});
-});
-function updateExportSelection(){
-  const modules=new Set(new FormData(exportForm).getAll('modules')),version=++exportPreviewVersion;
-  if(exportPreviewData?.url)URL.revokeObjectURL(exportPreviewData.url);
-  exportPreviewData=null;$('timelineExportConfirm').disabled=true;$('timelineExportCopy').disabled=true;cancelAnimationFrame(exportPreviewFrame);
-  const status=$('timelineExportStatus'),image=$('timelineExportPreview'),panel=image.parentElement;
-  status.hidden=false;status.textContent=modules.size?'正在生成预览…':'选择要导出的模块';
-  panel.setAttribute('aria-busy',String(!!modules.size));
-  if(!modules.size){image.hidden=true;image.removeAttribute('src');return;}
-  exportPreviewFrame=requestAnimationFrame(async()=>{
-    try{
-      const preview=await createTimelineExportPreview(modules,selected);
-      if(version!==exportPreviewVersion||!$('timelineExportDialog').open){URL.revokeObjectURL(preview.url);return;}
-      exportPreviewData=preview;image.src=preview.url;image.hidden=false;status.hidden=true;
-      $('timelineExportConfirm').disabled=$('timelineExportCopy').disabled=exportForm.getAttribute('aria-busy')==='true';
-    }catch(error){
-      if(version!==exportPreviewVersion)return;
-      image.hidden=true;status.textContent=`无法生成预览：${error.message}`;
-    }finally{if(version===exportPreviewVersion)panel.setAttribute('aria-busy','false');}
-  });
-}
-exportForm.addEventListener('change',updateExportSelection);
-function buildTimelineExport(modules,exportDate){
-  const page=document.createElement('div');page.className=`timeline-export-surface${modules.size===1&&modules.has('timeline')?' export-timeline-only':''}`;
-  const summaryChoices=[['categories','.category-stat'],['focus','.focus-stat'],['days','.days-stat']].filter(([key])=>modules.has(key));
-  const includeOverview=modules.has('overview')&&!(view==='year'&&modules.has('year'));
-  const hasOverview=includeOverview||summaryChoices.length>0;
-  if(modules.has('year')){
-    const section=document.createElement('section');section.append(buildExportYear());page.append(section);
-  }
-  if(hasOverview){
-    const section=document.createElement('section'),card=document.createElement('div');card.className='overview-card';
-    section.append(card);
-    if(summaryChoices.length){
-      const stats=document.createElement('div');stats.className='stats';stats.style.gridTemplateColumns=`repeat(${summaryChoices.length},minmax(0,1fr))`;
-      summaryChoices.forEach(([kind])=>stats.append(buildExportStat(kind)));card.append(stats);
-    }
-    if(includeOverview){
-      const toolbar=document.createElement('div');toolbar.className='overview-toolbar';
-      const title=document.createElement('h2');title.textContent=$('periodTitle').textContent;toolbar.append(title);card.append(toolbar);
-      const chart=$('overview').cloneNode(true);if(!summaryChoices.length)chart.classList.add('export-chart-spaced');card.append(chart);
-      card.append(document.querySelector('.overview-footer').cloneNode(true));
-    }
-    page.append(section);
-  }
-  const hasTimeline=modules.has('timeline'),hasEntries=modules.has('entries'),hasDistribution=modules.has('distribution');
-  if(hasDistribution){
-    const distribution=document.createElement('section');distribution.className='daily-card export-distribution';
-    const heading=document.createElement('h3');heading.textContent='全天分布';distribution.append(heading,buildExportDistribution(exportDate));
-    page.append(distribution);
-  }
-  if(hasTimeline||hasEntries){
-    const section=document.createElement('section');section.className='export-record-section';
-    const layout=document.createElement('div');layout.className=`record-layout export-record-layout${hasTimeline&&hasEntries?' export-record-paired':''}`;section.append(layout);
-    let timeline;
-    if(hasTimeline){
-      timeline=timelineCard.cloneNode(true);timeline.classList.add('export-timeline');
-      timeline.querySelector('#dayHeading').textContent='全天记录';
-      timeline.querySelectorAll('.timeline-actions,.continue-button,.continue-marker,.hover-cursor,.selection,.drag-readout').forEach(element=>element.remove());
-      const date=document.createElement('span');date.className='export-date';date.textContent=fullDate(exportDate);timeline.querySelector('.day-summary').append(date);
-      timeline.style.minHeight='870px';
-      layout.append(timeline);
-    }
-    if(hasEntries){
-      const daily=document.createElement('aside');daily.className='daily-card export-daily-card';
-      const heading=document.querySelector('.daily-card .aside-heading').cloneNode(true);heading.querySelector('h3').textContent='记录事件';
-      const list=$('entryList').cloneNode(true);list.classList.add('export-entry-list');daily.append(heading,list);
-      layout.append(daily);
-    }
-    page.append(section);
-  }
-  page.querySelectorAll('[id]').forEach(element=>element.removeAttribute('id'));
-  page.querySelectorAll('.focus-category-trigger svg,[data-export-category] svg').forEach(element=>element.remove());
-  page.querySelectorAll('.empty-add,.empty-chart').forEach(element=>{
-    const empty=document.createElement('span');empty.className='export-empty';empty.textContent='暂无记录';element.replaceWith(empty);
-  });
-  return page;
-}
-async function createTimelineExportPreview(modules,exportDate){
-  const width=1600,surface=buildTimelineExport(modules,exportDate);
-  Object.assign(surface.style,{position:'fixed',left:'-100000px',top:'0',width:`${width}px`,pointerEvents:'none'});
-  surface.setAttribute('aria-hidden','true');document.body.append(surface);
-  try{
-    if(document.fonts)await document.fonts.ready;
-    layoutTimelineLabels(surface,true);
-    const height=Math.ceil(surface.offsetHeight);
-    const blob=await renderExportPng(surface,{width,height});
-    return {width,height,date:exportDate,png:Promise.resolve(blob),url:URL.createObjectURL(blob)};
-  }finally{surface.remove();}
-}
-async function exportImage(copy=false) {
-  if(exportForm.getAttribute('aria-busy')==='true'||!exportPreviewData)return;
-  if(copy&&(!navigator.clipboard?.write||!globalThis.ClipboardItem)){toast('当前浏览器不支持复制图片，请导出 PNG');return;}
-  const preview=exportPreviewData,button=$(copy?'timelineExportCopy':'timelineExportConfirm');
-  // Keep labels and opacity steady while preventing duplicate export actions.
-  for(const id of ['timelineExportConfirm','timelineExportCopy'])$(id).setAttribute('aria-disabled','true');
-  button.setAttribute('aria-busy','true');exportForm.setAttribute('aria-busy','true');
-  try{
-    // Give ClipboardItem the promise during the click so user activation is retained.
-    if(copy){await navigator.clipboard.write([new ClipboardItem({'image/png':preview.png})]);toast('图片已复制');}
-    else{
-      const blob=await preview.png,url=URL.createObjectURL(blob),link=document.createElement('a');
-      link.href=url;link.download=`WhereIsMyTime-${preview.date}.png`;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
-      $('timelineExportDialog').close();toast('图片已导出');
-    }
-  }catch(error){toast(`未能${copy?'复制':'导出'}图片：${error.message}${copy?'。可尝试导出 PNG':''}`);}
-  finally{
-    button.removeAttribute('aria-busy');exportForm.removeAttribute('aria-busy');
-    for(const id of ['timelineExportConfirm','timelineExportCopy'])$(id).removeAttribute('aria-disabled');
-    $('timelineExportConfirm').disabled=$('timelineExportCopy').disabled=!exportPreviewData;
-  }
-}
-exportForm.onsubmit=event=>{event.preventDefault();exportImage();};
-$('timelineExportCopy').onclick=()=>exportImage(true);
-$('timelineExportDialog').addEventListener('close',()=>{
-  if($('timelineExportDialog').open)return;
-  ++exportPreviewVersion;cancelAnimationFrame(exportPreviewFrame);
-  const preview=exportPreviewData;exportPreviewData=null;
-  afterDialogExit($('timelineExportDialog'),()=>{
-    $('timelineExportPreview').removeAttribute('src');$('timelineExportPreview').hidden=true;
-    if(preview?.url)URL.revokeObjectURL(preview.url);
-  });
-});
+const timelineExport=setupTimelineExport({$,icon,toast,fullDate,timelineCard,layoutTimelineLabels,afterDialogExit,finishDialogCleanup,
+  getView:()=>view,getSelectedDate:()=>selected,hasEntries:()=>entriesOn(data,selected).length>0,
+  exportPeriodTitle,buildExportStat,buildExportDistribution,buildExportYear,renderFocusChoices,renderYearCategoryChoices,openDropdown,closeDropdown});
 for (const id of ['periodPrev', 'dayPrev']) $(id).innerHTML = icon('left');
 for (const id of ['periodNext', 'dayNext']) $(id).innerHTML = icon('right');
 $('dateChevron').innerHTML = icon('down');
@@ -920,7 +728,7 @@ $('pickerYear').onchange = () => { const year = Number($('pickerYear').value); i
 $('pickerToday').onclick = () => choosePickerDate(dateKey(new Date()));
 $('addEntry').onclick = () => openNew();
 $('continueEntry').onclick = () => { const range = continuationRange(entriesOn(data, selected)); if (range) openEntry(null, ...range); };
-$('manageEvents').onclick = () => { renderEventManager(); $('eventsDialog').showModal(); };
+$('manageEvents').onclick = () => { $('managerSearch').value=''; renderEventManager(); $('eventsDialog').showModal(); };
 $('pickerNewCategory').onclick=()=>{closeDropdown('categoryDropdown');openCategoryForm(categoryTarget);};
 $('categoryForm').onsubmit=function submitCategory(event) {
   event.preventDefault();
@@ -948,22 +756,6 @@ $('colorForm').onsubmit=function submitColor(event) {
   closeDropdown('colorDropdown');applyColor(color);
 };
 $('filterButton').onclick = () => { renderFilters(); openDropdown('filterDropdown', $('filterButton')); };
-$('backupButton').onclick = () => { $('backupMenu').hidden = !$('backupMenu').hidden; $('backupButton').setAttribute('aria-expanded', String(!$('backupMenu').hidden)); };
-$('exportButton').onclick = downloadBackup;
-$('importButton').onclick = () => { closeBackup(); $('importFile').value = ''; $('importFile').click(); };
-$('importFile').onchange = async event => {
-  const file = event.target.files[0]; if (!file) return;
-  if (file.size > 25 * 1024 * 1024) { toast('备份文件不能超过 25 MB'); return; }
-  try { imported = readBackup(JSON.parse(await file.text())); $('importSummary').innerHTML = `<span><strong>${imported.entries.length}</strong>条记录</span><span><strong>${imported.events.length}</strong>个事件</span><span><strong>${imported.categories.length}</strong>个分类</span>`; $('importError').hidden = true; document.querySelector(`input[name="importMode"][value="${persistenceLocked ? 'replace' : 'merge'}"]`).checked = true; $('importDialog').showModal(); }
-  catch (error) { toast(error instanceof SyntaxError ? '无法读取 JSON 备份文件' : error.message); }
-};
-$('confirmImport').onclick = () => {
-  try {
-    const mode = document.querySelector('input[name="importMode"]:checked').value;
-    const next = mode === 'replace' ? imported : mergeData(data, imported);
-    if (commit(next, true)) { $('importDialog').close(); imported = null; toast('备份已导入'); }
-  } catch (error) { $('importError').textContent = error.message; $('importError').hidden = false; }
-};
 for (const id of ['startTime','endTime','queryStartTime','queryEndTime']) {
   const input=$(id),update=()=>id.startsWith('query')?syncQueryTime(id):updateDuration();
   input.oninput=update;
@@ -1007,12 +799,16 @@ document.addEventListener('click', event => {
   const target = event.target.closest('button');
   if (!event.target.closest('.menu-wrap')) closeBackup();
   if (!target) return;
-  if (target.id === 'focusCategoryButton') { renderFocusChoices(); openDropdown('focusDropdown',target); return; }
+  if (target.id === 'focusCategoryButton') {
+    if(view==='year'){renderYearCategoryChoices();openDropdown('filterDropdown',target);}
+    else{renderFocusChoices();openDropdown('focusDropdown',target);}
+    return;
+  }
   if (target.hasAttribute('data-focus-category')) {
     focusCategory = target.dataset.focusCategory || null; closeDropdown('focusDropdown',false);
     try { localStorage.setItem(FOCUS_KEY,JSON.stringify(focusCategory)); } catch { toast('关注分类未能保存，当前页面仍可使用'); }
     renderOverview();
-    ($('timelineExportDialog').open?exportForm.querySelector('[data-export-category="focus"]'):$('focusCategoryButton'))?.focus({preventScroll:true});return;
+    ($('timelineExportDialog').open?timelineExport.categoryButton('focus'):$('focusCategoryButton'))?.focus({preventScroll:true});return;
   }
   if (target.dataset.close) { $(target.dataset.close).close(); return; }
   if (target.dataset.dismissPopover) { closeDropdown(target.dataset.dismissPopover); return; }
@@ -1052,7 +848,7 @@ document.addEventListener('click', event => {
   if (target.dataset.deleteCategory) { const id = target.dataset.deleteCategory, category = getCategory(data, id); askConfirm(`删除分类「${category.name}」？所属事件将改为未分类。`, () => { if (commit(deleteCategory(data, id))) { renderEventManager();toast('分类已删除'); } }); return; }
   if (target.dataset.pickerDate) { choosePickerDate(target.dataset.pickerDate); return; }
   if (target.hasAttribute('data-picker-month')) { const d = fromKey(pickerCursor); d.setDate(1); d.setMonth(Number(target.dataset.pickerMonth)); pickerCursor = dateKey(d); pickerMonthMode = false; renderDatePicker(); positionDropdown('dateDropdown', 'start'); return; }
-  if (target.dataset.view) { view = target.dataset.view; cursor = selected; renderOverview(); return; }
+  if (target.dataset.view) { switchView(target.dataset.view); return; }
   if (target.dataset.aggregation) { aggregation = target.dataset.aggregation; filter = null; renderOverview(); return; }
   if (target.dataset.date) { selectDate(target.dataset.date); return; }
   if (target.dataset.entry) { openEntry(target.dataset.entry); return; }
@@ -1061,7 +857,11 @@ document.addEventListener('click', event => {
   if (target.hasAttribute('data-filter')) { const id = target.dataset.filter || null, kind = target.dataset.filterKind; filter = filter?.kind === kind && filter.id === id ? null : { kind, id }; renderOverview(); return; }
   if (target.dataset.filterAll) { filter=null;closeDropdown('filterDropdown');renderOverview(); return; }
   if (target.hasAttribute('data-filter-choice')) { filter={kind:target.dataset.filterKind,id:target.dataset.filterChoice||null};closeDropdown('filterDropdown');renderOverview(); return; }
-  if (target.hasAttribute('data-year-category')) { yearCategory=target.dataset.yearCategory||null;closeDropdown('filterDropdown',false);renderOverview();if($('timelineExportDialog').open)exportForm.querySelector('[data-export-category="year"]')?.focus({preventScroll:true});return; }
+  if (target.hasAttribute('data-year-category')) {
+    const anchor=dropdownAnchors.get('filterDropdown')?.id;
+    yearCategory=target.dataset.yearCategory||null;closeDropdown('filterDropdown',false);renderOverview();
+    ($('timelineExportDialog').open?timelineExport.categoryButton('year'):$(anchor||'filterButton'))?.focus({preventScroll:true});return;
+  }
 
   if (target.dataset.color) { modalColor = target.dataset.color; modalColorManual = true; renderColors(); return; }
   if (target.dataset.deleteEvent) {
@@ -1086,6 +886,7 @@ function saveManagerName(input) {
     colorButton.setAttribute('aria-label',`修改${isCategory?'分类':''}${saved.name}的颜色`);
     deleteButton.setAttribute('aria-label',`删除${isCategory?'分类':'事件'}${saved.name}`);
     if(isCategory){input.setAttribute('aria-label',`修改分类${saved.name}的名称`);row.querySelector('[data-category-events]').setAttribute('aria-label',`查看${saved.name}分类中的事件`);}
+    if($('managerSearch').value)requestAnimationFrame(filterManagerRows);
   }catch(error){toast(error.message);input.value=current.name;}
 }
 for(const id of ['eventManager','categoryManager']) {
@@ -1132,10 +933,53 @@ document.querySelectorAll('[popover]').forEach(panel => {
 window.addEventListener('resize', () => { updateYearLayout(); for (const id of dropdownAnchors.keys()) positionDropdown(id, $(id).dataset.align); });
 window.addEventListener('scroll', event => { if (event.target instanceof Element && event.target.closest('[popover]')) return; for (const id of dropdownAnchors.keys()) positionDropdown(id, $(id).dataset.align); }, { capture: true, passive: true });
 new ResizeObserver(updateYearLayout).observe($('overview'));
-document.querySelector('.view-switch').addEventListener('keydown', event => {
+const mobileOverview=matchMedia('(max-width: 700px)');
+function setOverviewExpanded(expanded){
+  const button=$('overviewToggle'),label=expanded?'收起时间总览':'展开时间总览';
+  button.setAttribute('aria-expanded',String(expanded));button.setAttribute('aria-label',label);button.title=label;
+  button.innerHTML=icon('down');
+  $('overviewViewSwitch').hidden=$('overviewCard').hidden=!expanded;
+  if(expanded)updateYearLayout();
+  else{closeDropdown('filterDropdown',false);closeDropdown('focusDropdown',false);}
+}
+$('overviewToggle').onclick=()=>setOverviewExpanded($('overviewCard').hidden);
+mobileOverview.addEventListener('change',event=>setOverviewExpanded(!event.matches));
+setOverviewExpanded(!mobileOverview.matches);
+
+function switchView(mode){view=mode;cursor=selected;renderOverview();}
+const viewSwitch=$('overviewViewSwitch');
+const viewTabs=[...viewSwitch.querySelectorAll('[data-view]')];
+let viewDrag=null;
+function dragViewPosition(clientX){
+  return Math.max(0,Math.min(viewTabs.length-1,viewDrag.index+(clientX-viewDrag.startX)/viewDrag.step));
+}
+function stopViewDrag(){viewDrag=null;viewSwitch.classList.remove('dragging');}
+viewSwitch.addEventListener('pointerdown',event=>{
+  const index=viewTabs.indexOf(event.target.closest('[data-view]'));
+  if(!event.isPrimary||event.button!==0||viewDrag||index<0)return;
+  const step=viewTabs[1].getBoundingClientRect().left-viewTabs[0].getBoundingClientRect().left;
+  viewDrag={id:event.pointerId,index,startX:event.clientX,step,moving:false};
+  viewSwitch.setPointerCapture(event.pointerId);
+});
+viewSwitch.addEventListener('pointermove',event=>{
+  if(event.pointerId!==viewDrag?.id)return;
+  if(!viewDrag.moving&&Math.abs(event.clientX-viewDrag.startX)<4)return;
+  viewDrag.moving=true;
+  viewSwitch.style.setProperty('--view-drag-index',dragViewPosition(event.clientX));
+  viewSwitch.classList.add('dragging');
+});
+viewSwitch.addEventListener('pointerup',event=>{
+  if(event.pointerId!==viewDrag?.id)return;
+  const tab=viewDrag.moving?viewTabs[Math.round(dragViewPosition(event.clientX))]:document.elementFromPoint(event.clientX,event.clientY)?.closest('[data-view]');
+  stopViewDrag();
+  if(viewTabs.includes(tab)){switchView(tab.dataset.view);tab.focus({preventScroll:true});}
+});
+for(const type of ['pointercancel','lostpointercapture'])viewSwitch.addEventListener(type,event=>{if(event.pointerId===viewDrag?.id)stopViewDrag();});
+viewSwitch.addEventListener('keydown', event => {
   if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
-  event.preventDefault(); const buttons = [...document.querySelectorAll('[data-view]')], index = buttons.indexOf(document.activeElement);
-  const next = event.key === 'Home' ? 0 : event.key === 'End' ? 3 : (index + (event.key === 'ArrowRight' ? 1 : 3)) % 4; buttons[next].click(); buttons[next].focus();
+  event.preventDefault(); const index=viewTabs.indexOf(document.activeElement),last=viewTabs.length-1;
+  const next=event.key==='Home'?0:event.key==='End'?last:(index+(event.key==='ArrowRight'?1:last))%viewTabs.length;
+  viewTabs[next].click();viewTabs[next].focus();
 });
 
 function trackMinute(track, clientX) {

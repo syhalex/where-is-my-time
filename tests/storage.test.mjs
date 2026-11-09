@@ -4,7 +4,7 @@ import {emptyData,saveEntry,VERSION} from '../core.js';
 import {STORAGE_KEY,BACKUP_PREFIX,LEGACY_KEYS,loadStoredData,writeStoredData,listRecoverySources} from '../storage.js';
 function memory(initial={}){
   const map=new Map(Object.entries(initial));
-  return {get length(){return map.size;},key:i=>[...map.keys()][i],getItem:key=>map.get(key)??null,setItem:(key,value)=>map.set(key,String(value)),map};
+  return {get length(){return map.size;},key:i=>[...map.keys()][i],getItem:key=>map.get(key)??null,setItem:(key,value)=>map.set(key,String(value)),removeItem:key=>map.delete(key),map};
 }
 const current=()=>saveEntry(emptyData(),{name:'阅读',date:'2026-10-29',start:540,end:600,color:'#89A996',categoryId:'study'});
 function legacy(){const data=current();return {version:3,categories:data.categories,tags:data.events,entries:data.entries.map(({eventId,...entry})=>({...entry,activities:[{tagId:eventId,minutes:60}]}))};}
@@ -47,6 +47,32 @@ test('activation failure retains backup and old key, and can retry successfully'
 test('future schemas stay untouched and cannot be overwritten by an older app',()=>{
   const raw=JSON.stringify({...current(),version:99}),storage=memory({[STORAGE_KEY]:raw});assert.equal(loadStoredData(storage).locked,true);
   assert.throws(()=>writeStoredData(storage,current()));assert.equal(storage.getItem(STORAGE_KEY),raw);
+});
+test('repeated startup with identical unsupported data removes historical duplicate copies',()=>{
+  const raw=JSON.stringify({...current(),version:99}),storage=memory({[STORAGE_KEY]:raw});
+  for(let i=0;i<5;i++)storage.setItem(BACKUP_PREFIX+i,JSON.stringify({raw,createdAt:`2026-01-0${i+1}T00:00:00.000Z`}));
+  for(let i=0;i<5;i++)assert.equal(loadStoredData(storage).locked,true);
+  assert.equal(storage.length,2);
+  const [source]=listRecoverySources(storage,{active:true});
+  assert.equal(source.key,BACKUP_PREFIX+4);assert.equal(source.text,raw);assert.match(source.error,/99/);
+});
+test('only five distinct auto backups are retained and a legacy key is preserved',()=>{
+  const storage=memory({[LEGACY_KEYS[0]]:JSON.stringify(current())});
+  for(let i=0;i<8;i++){
+    const raw=JSON.stringify({...current(),version:99+i});
+    storage.setItem(STORAGE_KEY,raw);
+    const loaded=loadStoredData(storage);
+    assert.equal(JSON.parse(storage.getItem(loaded.backupKey)).raw,raw);
+  }
+  const saved=listRecoverySources(storage).filter(source=>source.key.startsWith(BACKUP_PREFIX));
+  assert.deepEqual(saved.map(source=>source.raw.version),[106,105,104,103,102]);
+  assert.ok(storage.getItem(LEGACY_KEYS[0]));
+});
+test('restore refuses to write over a document changed after preview',()=>{
+  const old=JSON.stringify(current()),storage=memory({[STORAGE_KEY]:old});
+  writeStoredData(storage,emptyData());const newer=storage.getItem(STORAGE_KEY);
+  assert.throws(()=>writeStoredData(storage,current(),{recovery:true,expectedRaw:old}),/已变化/);
+  assert.equal(storage.getItem(STORAGE_KEY),newer);assert.equal(listRecoverySources(storage).length,0);
 });
 test('recovery writes preserve the previous active document and support rollback',()=>{
   const raw=JSON.stringify(current()),storage=memory({[STORAGE_KEY]:raw});writeStoredData(storage,emptyData(),{recovery:true});

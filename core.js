@@ -230,36 +230,59 @@ export function validateData(raw) {
   {
     if (!Array.isArray(raw.categories) || raw.categories.length > 1000) throw new Error('备份分类格式不正确');
     const categoryIds = new Set(), categoryNames = new Set(); next.categories = [];
-    for (const c of raw.categories) {
-      if (!c || typeof c.id !== 'string' || !c.id || categoryIds.has(c.id) || typeof c.name !== 'string' || !normalizeName(c.name) || c.name.length > 30 || categoryNames.has(normalizeName(c.name)) || !/^#[0-9a-fA-F]{6}$/.test(c.color)) throw new Error('备份中存在无效或重复分类');
+    for (const [index,c] of raw.categories.entries()) {
+      const label=`第 ${index+1} 个分类`;
+      if (!c || typeof c.id !== 'string' || !c.id) throw new Error(`${label}缺少有效 ID`);
+      if (categoryIds.has(c.id)) throw new Error(`${label}的 ID 重复`);
+      if (typeof c.name !== 'string' || !normalizeName(c.name) || c.name.length > 30) throw new Error(`${label}的名称为空或超过 30 字`);
+      if (categoryNames.has(normalizeName(c.name))) throw new Error(`${label}的名称重复（${c.name}）`);
+      if (typeof c.color !== 'string' || !/^#[0-9a-fA-F]{6}$/.test(c.color)) throw new Error(`${label}的颜色格式无效`);
       categoryIds.add(c.id); categoryNames.add(normalizeName(c.name)); next.categories.push({ id: c.id, name: normalizeName(c.name), color: c.color });
     }
   }
-  for (const t of raw.events) {
-    if (!t || typeof t.id !== 'string' || !t.id || t.id === OTHER_TIME_EVENT.id || ids.has(t.id) || typeof t.name !== 'string' || !normalizeName(t.name) || t.name.length > 80 || names.has(normalizeName(t.name)) || !/^#[0-9a-fA-F]{6}$/.test(t.color)) throw new Error('备份中存在无效或重复事件');
+  for (const [index,t] of raw.events.entries()) {
+    const label=`第 ${index+1} 个事件`;
+    if (!t || typeof t.id !== 'string' || !t.id || t.id === OTHER_TIME_EVENT.id) throw new Error(`${label}缺少有效 ID`);
+    if (ids.has(t.id)) throw new Error(`${label}的 ID 重复`);
+    if (typeof t.name !== 'string' || !normalizeName(t.name) || t.name.length > 80) throw new Error(`${label}的名称为空或超过 80 字`);
+    if (names.has(normalizeName(t.name))) throw new Error(`${label}的名称重复（${t.name}）`);
+    if (typeof t.color !== 'string' || !/^#[0-9a-fA-F]{6}$/.test(t.color)) throw new Error(`${label}的颜色格式无效`);
     const categoryId = t.categoryId ?? null;
-    if (categoryId !== null && !getCategory(next, categoryId)) throw new Error('事件引用了不存在的分类');
+    if (categoryId !== null && !getCategory(next, categoryId)) throw new Error(`${label}「${t.name}」引用了不存在的分类`);
     ids.add(t.id); names.add(normalizeName(t.name)); next.events.push({ id: t.id, name: normalizeName(t.name), color: t.color, categoryId });
   }
   const entryIds = new Set();
-  for (const e of raw.entries) {
-    if (!e || typeof e.id !== 'string' || !e.id || entryIds.has(e.id) || !validDate(e.date) || !ids.has(e.eventId) || !Number.isInteger(e.start) || !Number.isInteger(e.end) || e.start < 0 || e.end > 1440 || e.start >= e.end || e.start % 5 || e.end % 5) throw new Error('备份中存在无效记录');
+  for (const [index,e] of raw.entries.entries()) {
+    const dated=typeof e?.date==='string'&&validDate(e.date),label=`第 ${index+1} 条记录${dated?`（${e.date}）`:''}`;
+    if (!e || typeof e.id !== 'string' || !e.id) throw new Error(`${label}缺少有效 ID`);
+    if (entryIds.has(e.id)) throw new Error(`${label}的 ID 重复`);
+    if (!dated) throw new Error(`${label}的日期无效，需使用 YYYY-MM-DD`);
+    if (!ids.has(e.eventId)) throw new Error(`${label}引用了不存在的事件`);
+    if (!Number.isInteger(e.start) || !Number.isInteger(e.end) || e.start < 0 || e.end > 1440 || e.start >= e.end) throw new Error(`${label}的起止时间无效`);
+    if (e.start % 5 || e.end % 5) throw new Error(`${label}的起止时间需精确到 5 分钟`);
     entryIds.add(e.id); next.entries.push({ id: e.id, date: e.date, start: e.start, end: e.end, eventId:e.eventId });
   }
   next.entries.sort((a, b) => a.date.localeCompare(b.date) || a.start - b.start);
-  for (let i = 1; i < next.entries.length; i++) { const a = next.entries[i - 1], b = next.entries[i]; if (a.date === b.date && a.end > b.start) throw new Error(`${b.date} 存在重叠时段`); }
+  for (let i = 1; i < next.entries.length; i++) { const a = next.entries[i - 1], b = next.entries[i]; if (a.date === b.date && a.end > b.start) throw new Error(`${b.date} 存在重叠时段（${timeText(a.start)}–${timeText(a.end)} 与 ${timeText(b.start)}–${timeText(b.end)}）`); }
   return pruneUnusedEvents(next);
 }
 // Read older backups at the boundary; stored records always use the current schema.
 export function readBackup(raw) {
+  if(!raw||typeof raw!=='object'||Array.isArray(raw))throw new Error('备份顶层应为 JSON 对象');
+  if(!Number.isInteger(raw.version))throw new Error('备份缺少有效的版本号');
+  if(![1,2,3,VERSION].includes(raw.version))throw new Error(`备份版本 ${raw.version} 不受支持，当前可读取版本 1–${VERSION}`);
+  if(!Array.isArray(raw.entries))throw new Error('备份缺少记录列表（entries）');
+  if(raw.version===VERSION&&!Array.isArray(raw.events))throw new Error('备份缺少事件列表（events）');
   if(raw?.version===VERSION)return validateData(raw);
-  if(!raw||![1,2,3].includes(raw.version)||!Array.isArray(raw.tags)||!Array.isArray(raw.entries))throw new Error('备份格式不正确或版本不受支持');
+  if(!Array.isArray(raw.tags))throw new Error('旧备份缺少事件列表（tags）');
   const next={version:VERSION,categories:structuredClone(raw.categories||DEFAULT_CATEGORIES),events:[],entries:[]};
-  const source=new Map(raw.tags.map(item=>[item.id,item])),byName=new Map();
-  for(const entry of raw.entries){
-    const refs=entry.activities?entry.activities.map(item=>item.tagId):[entry.tagId];
+  const source=new Map(raw.tags.filter(item=>item&&typeof item==='object').map(item=>[item.id,item])),byName=new Map();
+  for(const [index,entry] of raw.entries.entries()){
+    const label=`旧备份第 ${index+1} 条记录`;
+    if(!entry||typeof entry!=='object'||(entry.activities&&!Array.isArray(entry.activities)))throw new Error(`${label}的格式无效`);
+    const refs=entry.activities?entry.activities.map(item=>item?.tagId):[entry.tagId];
     const items=[...new Set(refs)].map(id=>source.get(id));
-    if(!items.length||items.some(item=>!item))throw new Error('旧备份中的记录引用了不存在的事件');
+    if(!items.length||items.some(item=>!item))throw new Error(`${label}引用了不存在的事件`);
     const name=items.map(item=>normalizeName(item.name)).join(' + ');
     if(name.length>80)throw new Error('旧记录合并后的事件名称超过 80 字，请先保留原始备份');
     let item=byName.get(name);
