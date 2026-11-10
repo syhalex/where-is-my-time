@@ -122,7 +122,6 @@ function periodRange(mode=view,key=cursor) {
   return [`${y}-01-01`, `${y + 1}-01-01`];
 }
 function fullPeriodEntries() { const [start,end] = periodRange(); return statisticalRecords().entries.filter(entry=>entry.date>=start&&entry.date<end); }
-function periodEntries() { return filteredEntries(fullPeriodEntries()); }
 function selectDate(key) {
   if (!validDate(key)) { toast('请选择 1900 年至 9999 年之间的有效日期'); return; }
   selected = key; cursor = key; render();
@@ -134,29 +133,67 @@ function periodMove(amount) {
   else d.setDate(d.getDate() + amount * (view === 'week' ? 7 : 1));
   const next = dateKey(d); if (validDate(next)) { cursor = next; renderOverview(); }
 }
-function renderFocusChoices() {
-  $('focusCategoryChoices').innerHTML = [...data.categories,{id:'',name:'未分类',color:'#BEC7B5'}].map(category=>pickerOption(category,`data-focus-category="${h(category.id)}"`,(category.id||null)===focusCategory)).join('');
+function renderFocusChoices(categoryId=focusCategory,forAverage=false) {
+  const choices=$('focusCategoryChoices'),attribute=forAverage?'data-average-category':'data-focus-category';
+  choices.setAttribute('aria-label',forAverage?'日平均时长分类':'关注分类');
+  choices.innerHTML = [...data.categories,{id:'',name:'未分类',color:'#BEC7B5'}].map(category=>pickerOption(category,`${attribute}="${h(category.id)}"`,(category.id||null)===categoryId)).join('');
 }
 function legendItem(id, minutes, interactive = true, mode = interactive ? aggregation : 'events') {
   const item = displayGroup(id, mode); if (!item) return '';
   if (item.automatic) interactive = false;
   return `<${interactive ? 'button' : 'span'} class="legend-item" ${interactive ? `data-filter="${h(id || '')}" data-filter-kind="${mode}"` : ''} title="${h(item.name)} ${durationText(minutes)}"><span class="legend-dot" style="background:${item.color}"></span>${h(item.name)}</${interactive ? 'button' : 'span'}>`;
 }
-function heatmapLegend(color){
-  return `<span class="heatmap-legend-title">全天占比</span><div class="heatmap-scale">${[0,25,50,75,100].map(percent=>`<span><i style="background:${heatColor(color,percent/100*1440)}"></i>${percent}%</span>`).join('')}</div>`;
+function yearHeatmap() {
+  const year = fromKey(cursor).getFullYear(), records = statisticalRecords();
+  if (records.heatmap?.year === year && records.heatmap.categoryId === yearCategory) return records.heatmap;
+  const category = displayGroup(yearCategory, 'categories');
+  const eventIds = new Set(data.events.filter(event => (event.categoryId || null) === yearCategory).map(event => event.id));
+  if (yearCategory === null) eventIds.add(OTHER_TIME_EVENT.id);
+  const first = `${year}-01-01`, last = `${year}-12-31`;
+  const minutesByDate = new Map();
+  let peakMinutes = 0;
+  for (const entry of records.entries) {
+    if (entry.date > last) break;
+    if (entry.date < first || !eventIds.has(entry.eventId)) continue;
+    const minutes = (minutesByDate.get(entry.date) || 0) + entry.end - entry.start;
+    minutesByDate.set(entry.date, minutes);
+    peakMinutes = Math.max(peakMinutes, minutes);
+  }
+  records.heatmap = {year, categoryId:yearCategory, category, minutesByDate, peakMinutes};
+  return records.heatmap;
+}
+function heatmapLegend({category,peakMinutes}){
+  const steps = peakMinutes ? [0,.25,.5,.75,1] : [0];
+  return `<span class="heatmap-legend-title">单日时长</span><div class="heatmap-scale">${steps.map(fraction=>{
+    const minutes = peakMinutes * fraction;
+    return `<span><i style="background:${heatColor(category.color,minutes,peakMinutes)}"></i>${durationText(Math.round(minutes))}</span>`;
+  }).join('')}</div>`;
 }
 function categoryStatMarkup(entries){
   const categories=categoryTotals(data,entries),spending=categories.reduce((sum,[,minutes])=>sum+minutes,0);
   const visible=categories.length?categories:data.categories.map(category=>[category.id,0]);
   return `<div class="category-stat"><span class="stat-label">分类占比</span><div class="category-share-bar">${categories.map(([id,minutes])=>`<span style="background:${getCategory(data,id)?.color||'#BEC7B5'};flex:${minutes}" title="${h(getCategory(data,id)?.name||'未分类')} ${spending?Math.round(minutes/spending*100):0}%"></span>`).join('')}</div><div class="category-percentages">${visible.map(([id,minutes])=>`<span><i style="background:${getCategory(data,id)?.color||'#BEC7B5'}"></i>${h(getCategory(data,id)?.name||'未分类')}<strong>${spending?Math.round(minutes/spending*100):0}%</strong></span>`).join('')}</div></div>`;
 }
-function focusStatMarkup(entries,exportControl=false){
-  const annual=view==='year'&&!exportControl,categoryId=annual?yearCategory:focusCategory;
-  const focus=categoryFocus(data,entries,categoryId),category=displayGroup(categoryId,'categories'),percent=`${Number((focus.share*100).toFixed(1))}%`;
-  return `<div class="focus-stat"><div class="focus-heading"><span class="stat-label">${annual?'年度分类':'关注分类'}</span><button type="button" ${exportControl?'data-export-category="focus"':'id="focusCategoryButton"'} class="focus-category-trigger" aria-label="选择${annual?'年度':'关注'}分类" aria-haspopup="listbox" aria-controls="${annual?'filterDropdown':'focusDropdown'}" aria-expanded="false"><i class="legend-dot" style="background:${category.color}"></i><span>${h(category.name)}</span>${icon('down')}</button></div><div class="focus-value"><span class="stat-value">${durationText(focus.minutes)}</span><span class="focus-percent">${percent}</span></div><div class="focus-share-track" role="img" aria-label="${h(category.name)}占比 ${percent}"><span style="width:${focus.share*100}%;background:${category.color}"></span></div></div>`;
+function statCategoryButton(category,attributes,label){
+  return `<button type="button" ${attributes} class="focus-category-trigger" aria-label="${label}" aria-haspopup="listbox" aria-controls="focusDropdown" aria-expanded="false"><i class="legend-dot" style="background:${category.color}"></i><span>${h(category.name)}</span>${icon('down')}</button>`;
 }
-function daysStatMarkup(entries){
-  return `<div class="days-stat"><span class="stat-label">记录天数</span><span class="stat-value">${new Set(entries.map(entry=>entry.date)).size}<span class="stat-unit">天</span></span></div>`;
+function focusStatMarkup(focus,categoryId,{annual=false,exportControl=false}={}){
+  const category=displayGroup(categoryId,'categories'),percent=`${Number((focus.share*100).toFixed(1))}%`;
+  const heading=annual
+    ? '<span class="stat-label">年度时长</span>'
+    : `<div class="focus-heading"><span class="stat-label">关注分类</span>${statCategoryButton(category,exportControl?'data-export-category="focus"':'id="focusCategoryButton"','选择关注分类')}</div>`;
+  return `<div class="focus-stat">${heading}<div class="focus-value"><span class="stat-value">${durationText(focus.minutes)}</span><span class="focus-percent">${percent}</span></div><div class="focus-share-track" role="img" aria-label="${h(category.name)}占比 ${percent}"><span style="width:${focus.share*100}%;background:${category.color}"></span></div></div>`;
+}
+const recordedDayCount = entries => new Set(entries.map(entry=>entry.date)).size;
+function daysStatMarkup(days){
+  return `<div class="days-stat"><span class="stat-label">记录天数</span><span class="stat-value">${days}<span class="stat-unit">天</span></span></div>`;
+}
+function averageStatMarkup(minutes,days,category=null){
+  const average=days?Math.round(minutes/days):0;
+  const heading=category
+    ? `<div class="focus-heading"><span class="stat-label">日平均时长</span>${statCategoryButton(category,'data-export-category="average"','选择日平均时长分类')}</div>`
+    : '<span class="stat-label">平均时长</span>';
+  return `<div class="average-stat">${heading}<span class="stat-value">${durationText(average)}</span></div>`;
 }
 function renderOverview() {
   closeDropdown('filterDropdown', false);
@@ -164,7 +201,8 @@ function renderOverview() {
   const activeTab=viewTabs.findIndex(tab=>tab.dataset.view===view);
   viewTabs.forEach((tab,index)=>{tab.setAttribute('aria-selected',String(index===activeTab));tab.tabIndex=index===activeTab?0:-1;});
   viewSwitch.style.setProperty('--view-index',activeTab);
-  const entries = periodEntries(), groups = displayTotals(entries), d = fromKey(cursor), [first, last] = periodRange();
+  const allEntries = fullPeriodEntries(), entries = filteredEntries(allEntries);
+  const groups = displayTotals(entries), d = fromKey(cursor), [first, last] = periodRange();
   if (yearCategory && !getCategory(data, yearCategory)) yearCategory = data.categories[0]?.id || null;
   if (focusCategory && !getCategory(data,focusCategory)) focusCategory = data.categories[0]?.id || null;
   $('aggregationSwitch').hidden = view === 'year';
@@ -174,16 +212,20 @@ function renderOverview() {
   if (view === 'week') { const a = fromKey(first), b = fromKey(addDays(last, -1)); title = a.getFullYear() === b.getFullYear() ? `${a.getFullYear()}年 ${a.getMonth() + 1}/${a.getDate()} - ${b.getMonth() + 1}/${b.getDate()}` : `${a.getFullYear()}/${a.getMonth() + 1}/${a.getDate()} - ${b.getFullYear()}/${b.getMonth() + 1}/${b.getDate()}`; }
   if (view === 'day') title = `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`;
   $('periodTitle').textContent = title;
-  $('stats').innerHTML=categoryStatMarkup(entries)+focusStatMarkup(fullPeriodEntries())+(view==='day'?'':daysStatMarkup(entries));
-  const filterEvent = view === 'year' ? displayGroup(yearCategory, 'categories') : filter ? displayGroup(filter.id, filter.kind) : null;
+  const annual = view === 'year', categoryId = annual ? yearCategory : focusCategory;
+  const focus = categoryFocus(data,allEntries,categoryId), days = recordedDayCount(entries);
+  $('stats').innerHTML = categoryStatMarkup(entries) + focusStatMarkup(focus,categoryId,{annual})
+    + (annual ? averageStatMarkup(focus.minutes,days) : '') + (view === 'day' ? '' : daysStatMarkup(days));
+  const heatmap = annual ? yearHeatmap() : null;
+  const filterEvent = heatmap?.category ?? (filter ? displayGroup(filter.id, filter.kind) : null);
   $('filterButton').innerHTML = (view === 'year' ? `<span class="legend-dot" style="background:${filterEvent.color}"></span>` : icon('filter')) + h(filterEvent ? filterEvent.name : aggregation === 'events' ? '全部事件' : '全部分类') + (view === 'year' ? icon('down') : ''); $('filterButton').classList.toggle('active', view === 'year' || !!filter);
   $('filterButton').setAttribute('aria-label', view === 'year' ? '选择年度分类' : aggregation === 'events' ? '筛选事件' : '筛选分类');
   $('filterButton').setAttribute('aria-haspopup', 'listbox');
   $('filterButton').setAttribute('aria-controls', 'filterDropdown');
   $('filterButton').title = filterEvent ? `当前${view === 'year' ? '年度分类' : '筛选'}：${filterEvent.name}` : '筛选';
-  $('legend').innerHTML = view === 'year' ? heatmapLegend(filterEvent.color) : groups.slice(0, 8).map(([id, mins]) => legendItem(id, mins)).join('') || '<span class="legend-item"><span class="legend-empty"></span>暂无事件</span>';
+  $('legend').innerHTML = heatmap ? heatmapLegend(heatmap) : groups.slice(0, 8).map(([id, mins]) => legendItem(id, mins)).join('') || '<span class="legend-item"><span class="legend-empty"></span>暂无事件</span>';
   $('periodTotal').textContent = `${entries.filter(entry=>!entry.automatic).length} 条记录`;
-  if (view === 'month') renderMonth(); else if (view === 'week') renderWeek(); else if (view === 'day') renderDayOverview(entries); else renderYear();
+  if (view === 'month') renderMonth(); else if (view === 'week') renderWeek(); else if (view === 'day') renderDayOverview(entries); else renderYear(heatmap);
   timelineExport.refresh();
 }
 function renderMonth() {
@@ -220,28 +262,29 @@ function renderDayOverview(entries) {
   stops.push(`#eef1e7 ${start}% 100%`);
   $('overview').innerHTML = `<div class="day-overview"><div class="donut" style="background:conic-gradient(${stops.join(',')})"><div class="donut-content"><span class="donut-number spending-number">${durationText(total)}</span><span class="donut-label">事件合计</span></div></div><div class="day-bars">${groups.map(([id, mins]) => { const t = displayGroup(id); return `<div><div class="day-bar-header"><span>${h(t.name)}</span><span>${durationText(mins)}</span></div><div class="day-bar-track"><div class="day-bar-fill" style="background:${t.color};width:${mins / total * 100}%"></div></div></div>`; }).join('') || `<div class="empty-chart"><button class="button quiet" data-new-date="${cursor}">${icon('plus')}添加记录</button></div>`}</div></div>`;
 }
-function yearChartMarkup(key=cursor,categoryId=yearCategory) {
-  const year = fromKey(key).getFullYear(), first = `${year}-01-01`, end = `${year + 1}-01-01`, start = weekStart(first), weeks = Math.ceil((Math.round((fromKey(end) - fromKey(start)) / 86400000)) / 7);
-  const category = displayGroup(categoryId, 'categories');
-  const byDate = new Map(); for (const e of statisticalRecords().entries.filter(e => e.date >= first && e.date < end)) if((getEvent(data,e.eventId).categoryId||null)===categoryId) byDate.set(e.date,(byDate.get(e.date)||0)+e.end-e.start);
+function yearChartMarkup({year,category,minutesByDate,peakMinutes}) {
+  const first = `${year}-01-01`, end = `${year + 1}-01-01`, start = weekStart(first), weeks = Math.ceil((Math.round((fromKey(end) - fromKey(start)) / 86400000)) / 7);
   let html = `<div class="year-scroll"><div class="year-chart" data-weeks="${weeks}"><div class="year-labels"><span>一</span><span></span><span>三</span><span></span><span>五</span><span></span><span>日</span></div><div class="year-weeks" style="grid-template-columns:repeat(${weeks},var(--year-cell-size,16px))">`;
   let previousMonth = -1;
+  let categoryDays = 0;
   for (let w = 0; w < weeks; w++) {
     let monthLabel = ''; const dates = Array.from({ length: 7 }, (_, i) => addDays(start, w * 7 + i));
     const monthStart = dates.find(key => key >= first && key < end && (fromKey(key).getDate() === 1 || key === first));
     if (monthStart && fromKey(monthStart).getMonth() !== previousMonth) { previousMonth = fromKey(monthStart).getMonth(); monthLabel = `${previousMonth + 1}月`; }
     html += `<div class="year-week"><span class="year-month-label">${monthLabel}</span>`;
     for (const key of dates) {
-      const total = byDate.get(key) || 0, outside = key < first || key >= end;
+      const outside = key < first || key >= end;
+      const total = outside ? 0 : minutesByDate.get(key) || 0;
+      if (total > 0) categoryDays++;
       const label = `${fullDate(key)}，${category.name} ${durationText(total)}，全天占比 ${Number((total / 1440 * 100).toFixed(1))}%`;
-      html += `<button class="year-day${outside ? ' outside' : ''}${key === selected ? ' selected' : ''}" data-date="${key}" title="${h(label)}" aria-label="${h(label)}" style="background:${heatColor(category.color, total)}" ${outside ? 'tabindex="-1" disabled' : ''}></button>`;
+      html += `<button class="year-day${outside ? ' outside' : ''}${key === selected ? ' selected' : ''}" data-date="${key}" title="${h(label)}" aria-label="${h(label)}" style="background:${heatColor(category.color, total, peakMinutes)}" ${outside ? 'tabindex="-1" disabled' : ''}></button>`;
     }
     html += '</div>';
   }
-  return html + `</div></div></div><div class="year-bottom"><span>${h(category.name)}</span><span>${byDate.size} 天</span></div>`;
+  return html + `</div></div></div><div class="year-bottom"><span>${h(category.name)}</span><span>${categoryDays} 天</span></div>`;
 }
-function renderYear() {
-  $('overview').innerHTML=yearChartMarkup();
+function renderYear(heatmap) {
+  $('overview').innerHTML=yearChartMarkup(heatmap);
   updateYearLayout();
 }
 function updateYearLayout() {
@@ -684,10 +727,18 @@ function exportPeriodTitle(mode){
   const date=fromKey(cursor),year=date.getFullYear();
   return mode==='year'?`${year}年`:mode==='month'?`${year}年${date.getMonth()+1}月`:`${year}年${date.getMonth()+1}月${date.getDate()}日`;
 }
-function buildExportStat(kind,mode){
+function buildExportStat(kind,mode,averageCategoryId){
   const [start,end]=periodRange(mode),records=statisticalRecords().entries.filter(entry=>entry.date>=start&&entry.date<end);
   const holder=document.createElement('div');
-  holder.innerHTML=kind==='focus'?focusStatMarkup(records,true):kind==='categories'?categoryStatMarkup(filteredEntries(records)):daysStatMarkup(filteredEntries(records));
+  if(kind==='focus'||kind==='average'){
+    const categoryId=kind==='focus'?focusCategory:averageCategoryId;
+    const focus=categoryFocus(data,records,categoryId);
+    holder.innerHTML=kind==='focus'?focusStatMarkup(focus,categoryId,{exportControl:true})
+      :averageStatMarkup(focus.minutes,recordedDayCount(records),displayGroup(categoryId,'categories'));
+  }else{
+    const entries=filteredEntries(records);
+    holder.innerHTML=kind==='categories'?categoryStatMarkup(entries):daysStatMarkup(recordedDayCount(entries));
+  }
   const content=holder.firstElementChild,label=content.querySelector('.stat-label');
   label.textContent=`${exportPeriodTitle(mode)} ${label.textContent}`;
   return content;
@@ -702,12 +753,12 @@ function buildExportDistribution(exportDate){
 }
 function buildExportYear(){
   const card=document.createElement('div');card.className='overview-card export-year-component';
-  const year=fromKey(cursor).getFullYear(),category=displayGroup(yearCategory,'categories');
-  card.innerHTML=`<div class="overview-toolbar"><h2>${year}年</h2><button type="button" class="export-year-category" data-export-category="year" aria-label="选择年度分类" aria-haspopup="listbox" aria-expanded="false"><i class="legend-dot" style="background:${category.color}"></i><span>${h(category.name)}</span>${icon('down')}</button></div><div class="overview-body">${yearChartMarkup()}</div><div class="overview-footer"><div class="legend">${heatmapLegend(category.color)}</div></div>`;
+  const heatmap=yearHeatmap(),{year,category}=heatmap;
+  card.innerHTML=`<div class="overview-toolbar"><h2>${year}年</h2><button type="button" class="export-year-category" data-export-category="year" aria-label="选择年度分类" aria-haspopup="listbox" aria-expanded="false"><i class="legend-dot" style="background:${category.color}"></i><span>${h(category.name)}</span>${icon('down')}</button></div><div class="overview-body">${yearChartMarkup(heatmap)}</div><div class="overview-footer"><div class="legend">${heatmapLegend(heatmap)}</div></div>`;
   return card;
 }
 const timelineExport=setupTimelineExport({$,icon,toast,fullDate,timelineCard,layoutTimelineLabels,afterDialogExit,finishDialogCleanup,
-  getView:()=>view,getSelectedDate:()=>selected,hasEntries:()=>entriesOn(data,selected).length>0,
+  getView:()=>view,getSelectedDate:()=>selected,getFocusCategory:()=>focusCategory,hasEntries:()=>entriesOn(data,selected).length>0,
   exportPeriodTitle,buildExportStat,buildExportDistribution,buildExportYear,renderFocusChoices,renderYearCategoryChoices,openDropdown,closeDropdown});
 for (const id of ['periodPrev', 'dayPrev']) $(id).innerHTML = icon('left');
 for (const id of ['periodNext', 'dayNext']) $(id).innerHTML = icon('right');
@@ -800,8 +851,7 @@ document.addEventListener('click', event => {
   if (!event.target.closest('.menu-wrap')) closeBackup();
   if (!target) return;
   if (target.id === 'focusCategoryButton') {
-    if(view==='year'){renderYearCategoryChoices();openDropdown('filterDropdown',target);}
-    else{renderFocusChoices();openDropdown('focusDropdown',target);}
+    renderFocusChoices();openDropdown('focusDropdown',target);
     return;
   }
   if (target.hasAttribute('data-focus-category')) {
@@ -858,9 +908,8 @@ document.addEventListener('click', event => {
   if (target.dataset.filterAll) { filter=null;closeDropdown('filterDropdown');renderOverview(); return; }
   if (target.hasAttribute('data-filter-choice')) { filter={kind:target.dataset.filterKind,id:target.dataset.filterChoice||null};closeDropdown('filterDropdown');renderOverview(); return; }
   if (target.hasAttribute('data-year-category')) {
-    const anchor=dropdownAnchors.get('filterDropdown')?.id;
     yearCategory=target.dataset.yearCategory||null;closeDropdown('filterDropdown',false);renderOverview();
-    ($('timelineExportDialog').open?timelineExport.categoryButton('year'):$(anchor||'filterButton'))?.focus({preventScroll:true});return;
+    ($('timelineExportDialog').open?timelineExport.categoryButton('year'):$('filterButton'))?.focus({preventScroll:true});return;
   }
 
   if (target.dataset.color) { modalColor = target.dataset.color; modalColorManual = true; renderColors(); return; }

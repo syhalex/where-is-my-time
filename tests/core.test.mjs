@@ -166,8 +166,12 @@ test('visual picker and hexadecimal input share accurate HSV conversion',()=>{
   for(const hex of ['#89A996','#FF0000','#00FF00','#0000FF','#000000','#FFFFFF','#3DC0C9'])assert.equal(hsvToHex(hexToHsv(hex)),hex);
 });
 
-test('annual heat uses the selected category color with monotonic intensity',()=>{
-  assert.equal(heatColor('#93A8CF',0),'#EEF1E8');assert.equal(heatColor('#93A8CF',1440),'#93A8CF');assert.notEqual(heatColor('#93A8CF',60),heatColor('#93A8CF',600));
+test('annual heat scales to the selected category peak',()=>{
+  const color='#93A8CF';
+  assert.equal(heatColor(color,0,0),'#EEF1E8');
+  assert.equal(heatColor(color,240,240),color);
+  assert.equal(heatColor(color,60,240),heatColor(color,120,480));
+  assert.notEqual(heatColor(color,60,240),heatColor(color,120,240));
 });
 
 test('empty categories are removed after pruning events and reassigning the last event',()=>{

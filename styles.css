@@ -443,6 +443,7 @@ dialog{padding:23px}
 /* Category summary and unified input controls. */
 main{margin-bottom:42px}
 .stats{display:grid;grid-template-columns:minmax(250px,1.5fr) minmax(200px,1fr) auto;gap:36px;padding:25px 34px 28px;align-items:start}
+#stats:has(.average-stat){grid-template-columns:minmax(0,1.5fr) minmax(0,1fr) auto auto}
 .stats .stat-label{display:block;order:0;font-size:11px;color:#86927c;margin-bottom:12px}
 .category-share-bar{display:flex;height:8px;border-radius:5px;overflow:hidden;background:#eef1e7;gap:2px;margin:6px 0 12px}
 .category-share-bar span{min-width:2px}
@@ -451,7 +452,7 @@ main{margin-bottom:42px}
 .category-percentages i{width:6px;height:6px;border-radius:2px}
 .category-percentages strong{font-size:10px;font-weight:500;color:#4c6242;margin-left:2px}
 .focus-stat .stat-value{display:block;font-size:25px;letter-spacing:-.8px;white-space:nowrap}
-.days-stat .stat-value{font-size:25px}
+.average-stat .stat-value,.days-stat .stat-value{font-size:25px;white-space:nowrap}
 .day-title-group{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
 .continue-button{font-size:10px;gap:4px;border:1px solid #dce6d2;border-radius:6px;padding:5px 7px;color:#638153;background:#f6f9f1;white-space:nowrap}
 .continue-button:hover{background:#eaf2df}
@@ -538,12 +539,13 @@ main{margin-bottom:42px}
 
 @media(max-width:700px){main{margin-bottom:22px}
 .stats{grid-template-columns:minmax(0,1fr) auto;gap:21px 20px;padding:20px 18px 22px}
-.category-stat{grid-column:1/-1}
+#stats:has(.average-stat){grid-template-columns:minmax(0,1fr) auto}
+.category-stat,#stats:has(.average-stat) .focus-stat{grid-column:1/-1}
 .stats .stat-label{margin-bottom:10px;font-size:10px}
 .category-share-bar{margin-top:0;height:7px;margin-bottom:10px}
 .category-percentages{gap:8px 13px}
 .category-percentages>span,.category-percentages strong{font-size:10px}
-.focus-stat .stat-value,.days-stat .stat-value{font-size:24px}
+.focus-stat .stat-value,.average-stat .stat-value,.days-stat .stat-value{font-size:24px}
 .days-stat{min-width:64px;text-align:right}
 .day-summary{gap:11px;margin-bottom:23px}
 .continue-button{font-size:10px;padding:4px 7px}
@@ -592,8 +594,8 @@ main{margin-bottom:42px}
 .aggregation-switch button{font-size:10px;color:#8b9a7d;padding:5px 9px;border-radius:4px;white-space:nowrap}
 .aggregation-switch button[aria-pressed=true]{background:#edf3e6;color:#4b683c}
 .heatmap-legend-title{font-size:10px;color:#8b9b7b}
-.heatmap-scale{display:flex;align-items:center;gap:12px}
-.heatmap-scale>span{display:flex;align-items:center;gap:4px;font-size:9px;color:#8d9c7c}
+.heatmap-scale{display:flex;align-items:center;flex-wrap:wrap;gap:12px}
+.heatmap-scale>span{display:flex;align-items:center;gap:4px;font-size:9px;color:#8d9c7c;white-space:nowrap}
 .heatmap-scale i{width:11px;height:11px;border-radius:3px}
 .overview-display-controls .filter-button{max-width:170px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .overview-display-controls .filter-button svg:last-child{width:12px;height:12px}
@@ -800,7 +802,7 @@ html:has(.timeline-fullscreen-dialog[open]),body:has(.timeline-fullscreen-dialog
 .export-range-dropdown .checkmark{margin-left:0;justify-self:end}
 
 .export-widget-content{pointer-events:none;user-select:none;min-width:0;max-height:190px;overflow:hidden;font-size:11px}
-.export-widget-content:is([data-export-widget=year],[data-export-widget=focus]){pointer-events:auto;user-select:auto}
+.export-widget-content:is([data-export-widget=year],[data-export-widget=focus],[data-export-widget=average]){pointer-events:auto;user-select:auto}
 .export-widget-content [data-export-category]{cursor:pointer;border-radius:4px;padding:3px 4px;min-height:0}
 .export-widget-content [data-export-category]:hover,.export-widget-content [data-export-category][aria-expanded=true]{background:#eaf1e1;color:#45613a}
 .export-widget-content [data-export-category] svg{display:block;width:10px;height:10px}
@@ -870,7 +872,14 @@ html:has(.timeline-fullscreen-dialog[open]),body:has(.timeline-fullscreen-dialog
 .export-widget-content .category-percentages{max-height:none;font-size:9px;gap:8px}
 .export-widget-content .focus-heading{justify-content:flex-start;margin-bottom:8px}
 .export-widget-content .focus-category-trigger svg{display:block}
-.export-widget-content .days-stat .stat-value{font-size:28px}
+.export-widget-content :is(.average-stat,.days-stat) .stat-value{font-size:28px}
+@media(max-width:700px), (orientation:portrait){
+.export-widget-option:has(>[data-export-widget=days]){display:flex;flex-direction:column}
+.export-widget-content:is([data-export-widget=average],[data-export-widget=days]){max-height:none;text-align:center;container-type:inline-size}
+.export-widget-content[data-export-widget=days]{display:grid;grid-template-columns:minmax(0,1fr);place-items:center;flex:1}
+.export-widget-content :is(.average-stat,.days-stat) .stat-value{font-size:clamp(16px,23cqi,28px)}
+.export-widget-content .days-stat{min-width:0;text-align:center}
+}
 .export-widget-content .timeline-legend{margin:0;gap:9px}
 .export-widget-content .legend-item{font-size:10px;max-width:none}
 .timeline-export-surface{width:1600px;display:flex;flex-direction:column;gap:32px;padding:40px;background:#f7f8f5;color:#303b35}
@@ -930,6 +939,12 @@ html:has(.timeline-fullscreen-dialog[open]),body:has(.timeline-fullscreen-dialog
 .timeline-export-surface .export-empty{font-size:13px;color:#99a88b;display:block;padding:24px;text-align:center}
 @media(max-width:850px){.export-workspace{grid-template-columns:minmax(0,1fr) 230px;gap:16px}.timeline-export-dialog{padding:20px}.export-preview-panel{padding:12px}}
 @media(max-width:650px){.timeline-export-dialog{height:calc(100dvh - 32px);padding:18px}.export-workspace{display:flex;flex-direction:column;overflow:auto;gap:20px}.export-preview-panel{height:300px;min-height:300px;flex-shrink:0}.export-options-panel{overflow:visible;padding:0}.export-widget-choices{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@supports(grid-template-rows:subgrid){
+@media(max-width:650px){
+.export-widget-choices>.export-widget-option{display:grid;grid-row:span 2;grid-template-rows:subgrid;row-gap:0}
+.export-widget-heading{align-self:start}
+}
+}
 
 /* Keep dialog scrolling inset from rounded edges and prevent fractional overflow. */
 dialog:not(.timeline-fullscreen-dialog):not(.comparison-fullscreen-dialog){max-height:calc(100dvh - 48px);overflow-x:hidden;overscroll-behavior:contain}

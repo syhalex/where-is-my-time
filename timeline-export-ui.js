@@ -1,7 +1,7 @@
 import {renderExportPng} from './image-export.js';
 
 export function setupTimelineExport({$,icon,toast,fullDate,timelineCard,layoutTimelineLabels,afterDialogExit,finishDialogCleanup,
-  getView,getSelectedDate,hasEntries,exportPeriodTitle,buildExportStat,buildExportDistribution,buildExportYear,
+  getView,getSelectedDate,getFocusCategory,hasEntries,exportPeriodTitle,buildExportStat,buildExportDistribution,buildExportYear,
   renderFocusChoices,renderYearCategoryChoices,openDropdown,closeDropdown}){
   $('timelineDownloadButton').innerHTML=icon('backup');
   $('timelineDownloadButton').onclick=()=>{
@@ -9,7 +9,9 @@ export function setupTimelineExport({$,icon,toast,fullDate,timelineCard,layoutTi
     exportForm.reset();
     const view=getView();
     const mode=['year','day'].includes(view)?view:'month';
-    exportRanges.categories=mode;exportRanges.focus=mode;exportRanges.days=view==='year'?'year':'month';
+    exportRanges.categories=mode;exportRanges.focus=mode;
+    exportRanges.average=exportRanges.days=view==='year'?'year':'month';
+    averageCategoryId=getFocusCategory();
     $('exportViewLabel').textContent=`当前${{year:'年',month:'月',week:'周',day:'日'}[view]}视图`;
     $('exportOverviewModule').closest('.export-widget-option').hidden=view==='year';
     renderExportWidgets();
@@ -18,14 +20,17 @@ export function setupTimelineExport({$,icon,toast,fullDate,timelineCard,layoutTi
   };
   const exportForm=$('timelineExportForm');
   let exportPreviewData=null,exportPreviewVersion=0,exportPreviewFrame=0;
-  const exportRanges={categories:'month',focus:'month',days:'month'};
+  const exportRanges={categories:'month',focus:'month',average:'month',days:'month'};
   let exportRangeTarget=null;
+  let averageCategoryId=null;
+  const categoryButton=kind=>exportForm.querySelector(`[data-export-category="${kind}"]`);
+  const buildSummaryStat=kind=>buildExportStat(kind,exportRanges[kind],averageCategoryId);
   function renderExportWidgets(){
     const sources={timeline:$('timeBands'),entries:$('entryList'),overview:$('overview')};
     for(const button of exportForm.querySelectorAll('[data-export-range]'))button.innerHTML=`${exportPeriodTitle(exportRanges[button.dataset.exportRange])}${icon('down')}`;
     for(const widget of exportForm.querySelectorAll('[data-export-widget]')){
       const kind=widget.dataset.exportWidget;
-      const content=kind==='distribution'?buildExportDistribution(getSelectedDate()):kind==='year'?buildExportYear():Object.hasOwn(exportRanges,kind)?buildExportStat(kind,exportRanges[kind]):sources[kind].cloneNode(true);
+      const content=kind==='distribution'?buildExportDistribution(getSelectedDate()):kind==='year'?buildExportYear():Object.hasOwn(exportRanges,kind)?buildSummaryStat(kind):sources[kind].cloneNode(true);
       if(widget.dataset.exportWidget==='timeline')content.append($('dayLegend').cloneNode(true));
       content.removeAttribute('id');content.querySelectorAll('[id]').forEach(element=>element.removeAttribute('id'));
       content.querySelectorAll('.stat-label,.continue-marker,.hover-cursor,.selection,.drag-readout,.time-band-callouts,.timeline-actions').forEach(element=>element.remove());
@@ -40,21 +45,32 @@ export function setupTimelineExport({$,icon,toast,fullDate,timelineCard,layoutTi
   }
   exportForm.addEventListener('click',event=>{
     const control=event.target.closest('button');
-    if(control?.dataset.exportCategory){
+    const categoryKind=control?.dataset.exportCategory;
+    if(categoryKind){
       event.stopPropagation();
-      if(control.dataset.exportCategory==='focus'){renderFocusChoices();openDropdown('focusDropdown',control);}
-      else{renderYearCategoryChoices();openDropdown('filterDropdown',control);}
+      if(categoryKind==='year'){renderYearCategoryChoices();openDropdown('filterDropdown',control);}
+      else{
+        const forAverage=categoryKind==='average';
+        renderFocusChoices(forAverage?averageCategoryId:getFocusCategory(),forAverage);
+        openDropdown('focusDropdown',control);
+      }
       return;
     }
     if(control?.dataset.exportRange){
       event.stopPropagation();exportRangeTarget=control.dataset.exportRange;
-      const modes=exportRangeTarget==='days'?['year','month']:['year','month','day'];
+      const modes=['average','days'].includes(exportRangeTarget)?['year','month']:['year','month','day'];
       $('exportRangeChoices').innerHTML=modes.map(mode=>`<button type="button" class="filter-choice" data-export-period="${mode}" aria-selected="${exportRanges[exportRangeTarget]===mode}"><span>当前${{year:'年',month:'月',day:'日'}[mode]}</span><span class="export-period-value">${exportPeriodTitle(mode)}</span><span class="checkmark">${exportRanges[exportRangeTarget]===mode?icon('check'):''}</span></button>`).join('');
       openDropdown('exportRangeDropdown',control,'start');return;
     }
     if(event.target.closest('input,button,label'))return;
     const checkbox=event.target.closest('.export-widget-option')?.querySelector('input[name="modules"]');
     if(checkbox){checkbox.checked=!checkbox.checked;updateExportSelection();}
+  });
+  $('focusDropdown').addEventListener('click',event=>{
+    const choice=event.target.closest('[data-average-category]');if(!choice)return;
+    averageCategoryId=choice.dataset.averageCategory||null;
+    closeDropdown('focusDropdown',false);renderExportWidgets();updateExportSelection();
+    categoryButton('average')?.focus({preventScroll:true});
   });
   $('exportRangeDropdown').addEventListener('click',event=>{
     const choice=event.target.closest('[data-export-period]');if(!choice)return;
@@ -85,7 +101,7 @@ export function setupTimelineExport({$,icon,toast,fullDate,timelineCard,layoutTi
   exportForm.addEventListener('change',updateExportSelection);
   function buildTimelineExport(modules,exportDate){
     const page=document.createElement('div');page.className=`timeline-export-surface${modules.size===1&&modules.has('timeline')?' export-timeline-only':''}`;
-    const summaryChoices=[['categories','.category-stat'],['focus','.focus-stat'],['days','.days-stat']].filter(([key])=>modules.has(key));
+    const summaryChoices=['categories','focus','average','days'].filter(kind=>modules.has(kind));
     const includeOverview=modules.has('overview')&&!(getView()==='year'&&modules.has('year'));
     const hasOverview=includeOverview||summaryChoices.length>0;
     if(modules.has('year')){
@@ -96,7 +112,7 @@ export function setupTimelineExport({$,icon,toast,fullDate,timelineCard,layoutTi
       section.append(card);
       if(summaryChoices.length){
         const stats=document.createElement('div');stats.className='stats';stats.style.gridTemplateColumns=`repeat(${summaryChoices.length},minmax(0,1fr))`;
-        summaryChoices.forEach(([kind])=>stats.append(buildExportStat(kind)));card.append(stats);
+        summaryChoices.forEach(kind=>stats.append(buildSummaryStat(kind)));card.append(stats);
       }
       if(includeOverview){
         const toolbar=document.createElement('div');toolbar.className='overview-toolbar';
@@ -186,6 +202,6 @@ export function setupTimelineExport({$,icon,toast,fullDate,timelineCard,layoutTi
   });
   return {
     refresh(){if($('timelineExportDialog').open){renderExportWidgets();updateExportSelection();}},
-    categoryButton(kind){return exportForm.querySelector(`[data-export-category="${kind}"]`);}
+    categoryButton
   };
 }
