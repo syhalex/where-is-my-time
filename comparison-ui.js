@@ -7,7 +7,7 @@ export function setupComparison({getData, getSelectedDate, toast, icon, beforeOp
   // These backups never enter the application's import, commit or storage paths.
   const sides = [];
   let nextId = 0, preview = null, busy = false, generation = 0, sourceTarget = null, previewFrame = 0, previewTimer = 0;
-  const sources = [{value:'own', name:'自己的记录'}, {value:'backup', name:'导入他人的备份'}, {value:'share', name:'分享链接'}];
+  const sources = [{value:'own', name:'我的记录'}, {value:'backup', name:'导入备份文件'}, {value:'share', name:'分享链接'}];
   const exportButtons = ['comparisonCopy', 'comparisonPng', 'comparisonSvg', 'comparisonFullscreen'];
   $('compareRecords').innerHTML = icon('compare') + '对比';
   $('comparisonFullscreen').innerHTML = icon('expand') + '全屏';
