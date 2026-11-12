@@ -48,8 +48,8 @@ let data = emptyData(), rawStorage = null, persistenceLocked = false, selected =
 let editing = null, modalColor = PALETTE[0], toastTimer, drag = null, confirmAction = null;
 let pickerCursor = selected, pickerMonthMode = false, pickerTarget = 'record', pickerOptions = null, categoryTarget = null, categoryFormColor = PALETTE[0], colorTarget = null, hoverTrack = null;
 const categoryEventIds = new Set();
-let aggregation = 'events', yearCategory = 'study', modalColorManual = false, modalMatchedName = null, modalCategoryId = null;
-let focusCategory = 'study', statisticalCache = null, calendarDay = dateKey(new Date()), midnightTimer;
+let aggregation = 'events', modalColorManual = false, modalMatchedName = null, modalCategoryId = null;
+let focusCategoryIds = ['study'], annualCategoryIds = null, statisticalCache = null, calendarDay = dateKey(new Date()), midnightTimer;
 let entryPalette = [], categoryPalette = [], pickerPalette = [];
 let colorHsv = {h:0,s:0,v:1};
 const colorHistory = new Set();
@@ -64,10 +64,13 @@ try { startup=loadStoredData(localStorage,{readOnly:openedWithShare}); }
 catch(error){startup={data:emptyData(),raw:null,locked:true,error:error.message};}
 data=pruneUnusedCategories(startup.data);rawStorage=startup.raw;persistenceLocked=startup.locked;
 try { const ids=JSON.parse(localStorage.getItem(RECENT_KEY)||'[]');if(Array.isArray(ids))recentSelections=[...new Set(ids.filter(id=>typeof id==='string'))].slice(0,5000); } catch {}
-try {
-  const stored = localStorage.getItem(FOCUS_KEY);
-  if (stored !== null) { const id = JSON.parse(stored); if (id === null || typeof id === 'string') focusCategory = id; }
-} catch { /* Keep the default category if the saved preference cannot be read. */ }
+function readFocusCategoryIds(stored) {
+  if (stored === null) return ['study'];
+  const value = JSON.parse(stored), ids = Array.isArray(value) ? value : [value];
+  return [...new Set(ids.filter(id => id === null || (typeof id === 'string' && id)))];
+}
+try { focusCategoryIds = readFocusCategoryIds(localStorage.getItem(FOCUS_KEY)); }
+catch { /* Keep the default category if the saved preference cannot be read. */ }
 
 function hideToast() {
   const notice=$('toast');if(notice.matches(':popover-open'))notice.hidePopover();notice.hidden=true;
@@ -121,7 +124,7 @@ function periodRange(mode=view,key=cursor) {
   if (mode === 'day') return [key, addDays(key, 1)];
   return [`${y}-01-01`, `${y + 1}-01-01`];
 }
-function fullPeriodEntries() { const [start,end] = periodRange(); return statisticalRecords().entries.filter(entry=>entry.date>=start&&entry.date<end); }
+function fullPeriodEntries(mode = view) { const [start,end] = periodRange(mode); return statisticalRecords().entries.filter(entry=>entry.date>=start&&entry.date<end); }
 function selectDate(key) {
   if (!validDate(key)) { toast('请选择 1900 年至 9999 年之间的有效日期'); return; }
   selected = key; cursor = key; render();
@@ -133,10 +136,45 @@ function periodMove(amount) {
   else d.setDate(d.getDate() + amount * (view === 'week' ? 7 : 1));
   const next = dateKey(d); if (validDate(next)) { cursor = next; renderOverview(); }
 }
-function renderFocusChoices(categoryId=focusCategory,forAverage=false) {
-  const choices=$('focusCategoryChoices'),attribute=forAverage?'data-average-category':'data-focus-category';
-  choices.setAttribute('aria-label',forAverage?'日平均时长分类':'关注分类');
-  choices.innerHTML = [...data.categories,{id:'',name:'未分类',color:'#BEC7B5'}].map(category=>pickerOption(category,`${attribute}="${h(category.id)}"`,(category.id||null)===categoryId)).join('');
+const allFocusLabel = '全部关注分类', combinedCategoryColor = '#78986A';
+function normalizeFocusSelection() {
+  focusCategoryIds = focusCategoryIds.filter(id => id === null || getCategory(data,id));
+  if (!focusCategoryIds.length) focusCategoryIds = [data.categories[0]?.id ?? null];
+  if (annualCategoryIds) annualCategoryIds = annualCategoryIds.filter(id => focusCategoryIds.includes(id));
+  if (!annualCategoryIds?.length) annualCategoryIds = null;
+}
+const selectedAnnualCategoryIds = () => annualCategoryIds ?? focusCategoryIds;
+function categorySelection(ids, all = false) {
+  const categories = ids.map(id => displayGroup(id,'categories'));
+  const names = categories.map(category => category.name).join('、');
+  return {
+    name:all ? allFocusLabel : categories.length === 1 ? names : `已选 ${categories.length} 项`,
+    fullName:all ? `${allFocusLabel}（${names}）` : names,
+    color:categories.length === 1 ? categories[0].color : combinedCategoryColor
+  };
+}
+function renderFocusChoices(averageCategoryId) {
+  const forAverage = averageCategoryId !== undefined;
+  const choices = $('focusCategoryChoices'), attribute = forAverage ? 'data-average-category' : 'data-focus-category';
+  choices.setAttribute('aria-label',forAverage ? '日平均时长分类' : '关注分类');
+  choices.setAttribute('aria-multiselectable',String(!forAverage));
+  const selected = forAverage ? [averageCategoryId] : focusCategoryIds;
+  choices.innerHTML = [...data.categories,displayGroup(null,'categories')].map(category =>
+    pickerOption(category,`${attribute}="${h(category.id ?? '')}"`,selected.includes(category.id))).join('');
+}
+function renderAnnualCategoryChoices() {
+  $('annualCategoryChoices').innerHTML = pickerOption({name:allFocusLabel,color:combinedCategoryColor},'data-annual-all',annualCategoryIds === null)
+    + focusCategoryIds.map(id => pickerOption(displayGroup(id,'categories'),`data-annual-category="${h(id ?? '')}"`,annualCategoryIds?.includes(id) ?? false)).join('');
+}
+function toggleCategoryId(ids,id) {
+  return ids.includes(id) ? ids.filter(value => value !== id) : [...ids,id];
+}
+function paintCategoryChoices(choices,isSelected) {
+  choices.querySelectorAll('.filter-choice').forEach(button => {
+    const selected = isSelected(button);
+    button.setAttribute('aria-selected',String(selected));
+    button.querySelector('.checkmark').innerHTML = selected ? icon('check') : '';
+  });
 }
 function legendItem(id, minutes, interactive = true, mode = interactive ? aggregation : 'events') {
   const item = displayGroup(id, mode); if (!item) return '';
@@ -145,21 +183,23 @@ function legendItem(id, minutes, interactive = true, mode = interactive ? aggreg
 }
 function yearHeatmap() {
   const year = fromKey(cursor).getFullYear(), records = statisticalRecords();
-  if (records.heatmap?.year === year && records.heatmap.categoryId === yearCategory) return records.heatmap;
-  const category = displayGroup(yearCategory, 'categories');
-  const eventIds = new Set(data.events.filter(event => (event.categoryId || null) === yearCategory).map(event => event.id));
-  if (yearCategory === null) eventIds.add(OTHER_TIME_EVENT.id);
+  const ids = selectedAnnualCategoryIds(), categoryKey = JSON.stringify(ids);
+  if (records.heatmap?.year === year && records.heatmap.categoryKey === categoryKey) return records.heatmap;
+  const category = categorySelection(ids), selectedIds = new Set(ids);
+  const eventIds = new Set(data.events.filter(event => selectedIds.has(event.categoryId ?? null)).map(event => event.id));
+  if (selectedIds.has(null)) eventIds.add(OTHER_TIME_EVENT.id);
   const first = `${year}-01-01`, last = `${year}-12-31`;
   const minutesByDate = new Map();
-  let peakMinutes = 0;
+  let peakMinutes = 0, entryCount = 0;
   for (const entry of records.entries) {
     if (entry.date > last) break;
     if (entry.date < first || !eventIds.has(entry.eventId)) continue;
+    if (!entry.automatic) entryCount++;
     const minutes = (minutesByDate.get(entry.date) || 0) + entry.end - entry.start;
     minutesByDate.set(entry.date, minutes);
     peakMinutes = Math.max(peakMinutes, minutes);
   }
-  records.heatmap = {year, categoryId:yearCategory, category, minutesByDate, peakMinutes};
+  records.heatmap = {year, categoryKey, category, minutesByDate, peakMinutes, entryCount};
   return records.heatmap;
 }
 function heatmapLegend({category,peakMinutes}){
@@ -174,15 +214,20 @@ function categoryStatMarkup(entries){
   const visible=categories.length?categories:data.categories.map(category=>[category.id,0]);
   return `<div class="category-stat"><span class="stat-label">分类占比</span><div class="category-share-bar">${categories.map(([id,minutes])=>`<span style="background:${getCategory(data,id)?.color||'#BEC7B5'};flex:${minutes}" title="${h(getCategory(data,id)?.name||'未分类')} ${spending?Math.round(minutes/spending*100):0}%"></span>`).join('')}</div><div class="category-percentages">${visible.map(([id,minutes])=>`<span><i style="background:${getCategory(data,id)?.color||'#BEC7B5'}"></i>${h(getCategory(data,id)?.name||'未分类')}<strong>${spending?Math.round(minutes/spending*100):0}%</strong></span>`).join('')}</div></div>`;
 }
-function statCategoryButton(category,attributes,label){
-  return `<button type="button" ${attributes} class="focus-category-trigger" aria-label="${label}" aria-haspopup="listbox" aria-controls="focusDropdown" aria-expanded="false"><i class="legend-dot" style="background:${category.color}"></i><span>${h(category.name)}</span>${icon('down')}</button>`;
+function categoryButtonContent(category) {
+  return `<i class="legend-dot" style="background:${category.color}"></i><span>${h(category.name)}</span>${icon('down')}`;
 }
-function focusStatMarkup(focus,categoryId,{annual=false,exportControl=false}={}){
-  const category=displayGroup(categoryId,'categories'),percent=`${Number((focus.share*100).toFixed(1))}%`;
-  const heading=annual
-    ? '<span class="stat-label">年度时长</span>'
-    : `<div class="focus-heading"><span class="stat-label">关注分类</span>${statCategoryButton(category,exportControl?'data-export-category="focus"':'id="focusCategoryButton"','选择关注分类')}</div>`;
-  return `<div class="focus-stat">${heading}<div class="focus-value"><span class="stat-value">${durationText(focus.minutes)}</span><span class="focus-percent">${percent}</span></div><div class="focus-share-track" role="img" aria-label="${h(category.name)}占比 ${percent}"><span style="width:${focus.share*100}%;background:${category.color}"></span></div></div>`;
+function statCategoryButton(category,attributes,label,dropdown='focusDropdown'){
+  const names = category.fullName ?? category.name;
+  return `<button type="button" ${attributes} class="focus-category-trigger" data-category-names="${h(names)}" title="${h(names)}" aria-label="${h(`${label}，当前${names}`)}" aria-haspopup="listbox" aria-controls="${dropdown}" aria-expanded="false">${categoryButtonContent(category)}</button>`;
+}
+function focusStatMarkup(focus,category,{annual=false,exportControl=false}={}){
+  const percent = `${Number((focus.share*100).toFixed(1))}%`;
+  const trigger = annual
+    ? statCategoryButton(category,exportControl ? 'data-export-category="annual"' : 'id="annualCategoryButton"','选择年度时长分类','annualCategoryDropdown')
+    : statCategoryButton(category,exportControl ? 'data-export-category="focus"' : 'id="focusCategoryButton"','选择关注分类');
+  const heading = `<div class="focus-heading"><span class="stat-label">${annual ? '年度时长' : '关注分类'}</span>${trigger}</div>`;
+  return `<div class="focus-stat">${heading}<div class="focus-value"><span class="stat-value">${durationText(focus.minutes)}</span><span class="focus-percent">${percent}</span></div><div class="focus-share-track" role="img" aria-label="${h(category.fullName)}占比 ${percent}"><span style="width:${focus.share*100}%;background:${category.color}"></span></div></div>`;
 }
 const recordedDayCount = entries => new Set(entries.map(entry=>entry.date)).size;
 function daysStatMarkup(days){
@@ -195,16 +240,22 @@ function averageStatMarkup(minutes,days,category=null){
     : '<span class="stat-label">平均时长</span>';
   return `<div class="average-stat">${heading}<span class="stat-value">${durationText(average)}</span></div>`;
 }
-function renderOverview() {
-  closeDropdown('filterDropdown', false);
-  closeDropdown('focusDropdown', false);
+function annualStatsMarkup(entries,exportControl=false) {
+  const ids = selectedAnnualCategoryIds(), days = recordedDayCount(entries);
+  const focus = categoryFocus(data,entries,ids);
+  return focusStatMarkup(focus,categorySelection(ids,annualCategoryIds === null),{annual:true,exportControl})
+    + averageStatMarkup(focus.minutes,days) + daysStatMarkup(days);
+}
+function renderOverview(keepDropdown) {
+  for (const id of ['filterDropdown','focusDropdown','annualCategoryDropdown']) {
+    if (id !== keepDropdown) closeDropdown(id,false);
+  }
   const activeTab=viewTabs.findIndex(tab=>tab.dataset.view===view);
   viewTabs.forEach((tab,index)=>{tab.setAttribute('aria-selected',String(index===activeTab));tab.tabIndex=index===activeTab?0:-1;});
   viewSwitch.style.setProperty('--view-index',activeTab);
   const allEntries = fullPeriodEntries(), entries = filteredEntries(allEntries);
   const groups = displayTotals(entries), d = fromKey(cursor), [first, last] = periodRange();
-  if (yearCategory && !getCategory(data, yearCategory)) yearCategory = data.categories[0]?.id || null;
-  if (focusCategory && !getCategory(data,focusCategory)) focusCategory = data.categories[0]?.id || null;
+  normalizeFocusSelection();
   $('aggregationSwitch').hidden = view === 'year';
   document.querySelectorAll('[data-aggregation]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.aggregation === aggregation)));
   let title = `${d.getFullYear()}年${d.getMonth() + 1}月`;
@@ -212,19 +263,22 @@ function renderOverview() {
   if (view === 'week') { const a = fromKey(first), b = fromKey(addDays(last, -1)); title = a.getFullYear() === b.getFullYear() ? `${a.getFullYear()}年 ${a.getMonth() + 1}/${a.getDate()} - ${b.getMonth() + 1}/${b.getDate()}` : `${a.getFullYear()}/${a.getMonth() + 1}/${a.getDate()} - ${b.getFullYear()}/${b.getMonth() + 1}/${b.getDate()}`; }
   if (view === 'day') title = `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`;
   $('periodTitle').textContent = title;
-  const annual = view === 'year', categoryId = annual ? yearCategory : focusCategory;
-  const focus = categoryFocus(data,allEntries,categoryId), days = recordedDayCount(entries);
-  $('stats').innerHTML = categoryStatMarkup(entries) + focusStatMarkup(focus,categoryId,{annual})
-    + (annual ? averageStatMarkup(focus.minutes,days) : '') + (view === 'day' ? '' : daysStatMarkup(days));
+  const annual = view === 'year';
+  $('stats').innerHTML = categoryStatMarkup(entries) + (annual ? annualStatsMarkup(allEntries)
+    : focusStatMarkup(categoryFocus(data,allEntries,focusCategoryIds),categorySelection(focusCategoryIds))
+      + (view === 'day' ? '' : daysStatMarkup(recordedDayCount(entries))));
   const heatmap = annual ? yearHeatmap() : null;
-  const filterEvent = heatmap?.category ?? (filter ? displayGroup(filter.id, filter.kind) : null);
-  $('filterButton').innerHTML = (view === 'year' ? `<span class="legend-dot" style="background:${filterEvent.color}"></span>` : icon('filter')) + h(filterEvent ? filterEvent.name : aggregation === 'events' ? '全部事件' : '全部分类') + (view === 'year' ? icon('down') : ''); $('filterButton').classList.toggle('active', view === 'year' || !!filter);
-  $('filterButton').setAttribute('aria-label', view === 'year' ? '选择年度分类' : aggregation === 'events' ? '筛选事件' : '筛选分类');
+  const focusSelection = annual ? categorySelection(focusCategoryIds) : null;
+  const filterEvent = filter ? displayGroup(filter.id, filter.kind) : null;
+  $('filterButton').innerHTML = annual ? categoryButtonContent(focusSelection)
+    : icon('filter') + h(filterEvent ? filterEvent.name : aggregation === 'events' ? '全部事件' : '全部分类');
+  $('filterButton').classList.toggle('active',annual || !!filter);
+  $('filterButton').setAttribute('aria-label',annual ? `选择关注分类，当前${focusSelection.fullName}` : aggregation === 'events' ? '筛选事件' : '筛选分类');
   $('filterButton').setAttribute('aria-haspopup', 'listbox');
-  $('filterButton').setAttribute('aria-controls', 'filterDropdown');
-  $('filterButton').title = filterEvent ? `当前${view === 'year' ? '年度分类' : '筛选'}：${filterEvent.name}` : '筛选';
+  $('filterButton').setAttribute('aria-controls',annual ? 'focusDropdown' : 'filterDropdown');
+  $('filterButton').title = annual ? focusSelection.fullName : filterEvent ? `当前筛选：${filterEvent.name}` : '筛选';
   $('legend').innerHTML = heatmap ? heatmapLegend(heatmap) : groups.slice(0, 8).map(([id, mins]) => legendItem(id, mins)).join('') || '<span class="legend-item"><span class="legend-empty"></span>暂无事件</span>';
-  $('periodTotal').textContent = `${entries.filter(entry=>!entry.automatic).length} 条记录`;
+  $('periodTotal').textContent = `${heatmap?.entryCount ?? entries.filter(entry=>!entry.automatic).length} 条记录`;
   if (view === 'month') renderMonth(); else if (view === 'week') renderWeek(); else if (view === 'day') renderDayOverview(entries); else renderYear(heatmap);
   timelineExport.refresh();
 }
@@ -266,7 +320,6 @@ function yearChartMarkup({year,category,minutesByDate,peakMinutes}) {
   const first = `${year}-01-01`, end = `${year + 1}-01-01`, start = weekStart(first), weeks = Math.ceil((Math.round((fromKey(end) - fromKey(start)) / 86400000)) / 7);
   let html = `<div class="year-scroll"><div class="year-chart" data-weeks="${weeks}"><div class="year-labels"><span>一</span><span></span><span>三</span><span></span><span>五</span><span></span><span>日</span></div><div class="year-weeks" style="grid-template-columns:repeat(${weeks},var(--year-cell-size,16px))">`;
   let previousMonth = -1;
-  let categoryDays = 0;
   for (let w = 0; w < weeks; w++) {
     let monthLabel = ''; const dates = Array.from({ length: 7 }, (_, i) => addDays(start, w * 7 + i));
     const monthStart = dates.find(key => key >= first && key < end && (fromKey(key).getDate() === 1 || key === first));
@@ -275,13 +328,12 @@ function yearChartMarkup({year,category,minutesByDate,peakMinutes}) {
     for (const key of dates) {
       const outside = key < first || key >= end;
       const total = outside ? 0 : minutesByDate.get(key) || 0;
-      if (total > 0) categoryDays++;
-      const label = `${fullDate(key)}，${category.name} ${durationText(total)}，全天占比 ${Number((total / 1440 * 100).toFixed(1))}%`;
+      const label = `${fullDate(key)}，${category.fullName} ${durationText(total)}，全天占比 ${Number((total / 1440 * 100).toFixed(1))}%`;
       html += `<button class="year-day${outside ? ' outside' : ''}${key === selected ? ' selected' : ''}" data-date="${key}" title="${h(label)}" aria-label="${h(label)}" style="background:${heatColor(category.color, total, peakMinutes)}" ${outside ? 'tabindex="-1" disabled' : ''}></button>`;
     }
     html += '</div>';
   }
-  return html + `</div></div></div><div class="year-bottom"><span>${h(category.name)}</span><span>${categoryDays} 天</span></div>`;
+  return html + `</div></div></div><div class="year-bottom"><span>${h(category.fullName)}</span><span>${minutesByDate.size} 天</span></div>`;
 }
 function renderYear(heatmap) {
   $('overview').innerHTML=yearChartMarkup(heatmap);
@@ -502,10 +554,7 @@ function renderCategoryEventSelection() {
   const items=[...categoryEventIds].map(id=>getEvent(data,id)).filter(Boolean),names=items.map(item=>item.name).join('、');
   $('categoryEventValue').innerHTML=items.length?`<i class="legend-dot" style="background:${items[0].color}"></i><span>${h(names)}</span>`:'选择事件';
   $('categoryEventValue').title=names;
-  $('categoryEventChoices').querySelectorAll('[data-category-event]').forEach(button=>{
-    const selected=categoryEventIds.has(button.dataset.categoryEvent);
-    button.setAttribute('aria-selected',String(selected));button.querySelector('.checkmark').innerHTML=selected?icon('check'):'';
-  });
+  paintCategoryChoices($('categoryEventChoices'),button=>categoryEventIds.has(button.dataset.categoryEvent));
 }
 $('categoryEventButton').onclick=()=>{
   $('categoryEventChoices').innerHTML=sortedEvents().map(item=>pickerOption(item,`data-category-event="${h(item.id)}"`,categoryEventIds.has(item.id))).join('');
@@ -596,7 +645,7 @@ function openDropdown(id, anchor, align = 'end') {
   for (const otherId of dropdownAnchors.keys()) if (otherId !== id) closeDropdown(otherId, false);
   const host = anchor.closest('dialog') || document.body;
   if (panel.parentElement !== host) host.append(panel);
-  dropdownAnchors.set(id, anchor); anchor.setAttribute('aria-controls', id); anchor.setAttribute('aria-expanded', 'true'); anchor.setAttribute('aria-haspopup', ['filterDropdown','categoryDropdown','categoryEventDropdown','focusDropdown','exportRangeDropdown','comparisonSourceDropdown'].includes(id) ? 'listbox' : 'dialog');
+  dropdownAnchors.set(id, anchor); anchor.setAttribute('aria-controls', id); anchor.setAttribute('aria-expanded', 'true'); anchor.setAttribute('aria-haspopup', panel.querySelector('[role="listbox"]') ? 'listbox' : 'dialog');
   if (id === 'dateDropdown' || id === 'colorDropdown') { panel.setAttribute('role', 'dialog'); panel.setAttribute('aria-modal', 'false'); }
   panel.querySelectorAll('.filter-choice').forEach(button => { button.setAttribute('role', 'option'); button.tabIndex = -1; });
   panel.style.maxHeight = `${Math.max(150, Math.min(420, innerHeight - 32))}px`; panel.showPopover();
@@ -629,12 +678,7 @@ function stepTime(id, step) {
   if(id.startsWith('query'))syncQueryTime(id);else updateDuration();
 }
 function askConfirm(title, action) { $('confirmTitle').textContent = title; confirmAction = action; $('confirmDialog').showModal(); }
-function renderYearCategoryChoices(){
-  $('filterChoices').setAttribute('aria-label','年度分类');
-  $('filterChoices').innerHTML=[...data.categories,{id:'',name:'未分类',color:'#BEC7B5'}].map(category=>pickerOption(category,`data-year-category="${h(category.id)}"`,(category.id||null)===yearCategory)).join('');
-}
 function renderFilters() {
-  if(view==='year'){renderYearCategoryChoices();return;}
   $('filterChoices').setAttribute('aria-label',aggregation==='events'?'筛选事件':'筛选分类');
   const choices=aggregation==='events'?sortedEvents():[...data.categories,{id:null,name:'未分类',color:'#BEC7B5'}];
   $('filterChoices').innerHTML=`<button class="filter-choice" data-filter-all="true" aria-selected="${!filter}"><span>${aggregation==='events'?'全部事件':'全部分类'}</span>${!filter?`<span class="checkmark">${icon('check')}</span>`:''}</button>`+choices.map(item=>pickerOption(item,`data-filter-choice="${h(item.id||'')}" data-filter-kind="${aggregation}"`,filter?.kind===aggregation&&filter.id===item.id)).join('');
@@ -728,13 +772,12 @@ function exportPeriodTitle(mode){
   return mode==='year'?`${year}年`:mode==='month'?`${year}年${date.getMonth()+1}月`:`${year}年${date.getMonth()+1}月${date.getDate()}日`;
 }
 function buildExportStat(kind,mode,averageCategoryId){
-  const [start,end]=periodRange(mode),records=statisticalRecords().entries.filter(entry=>entry.date>=start&&entry.date<end);
-  const holder=document.createElement('div');
-  if(kind==='focus'||kind==='average'){
-    const categoryId=kind==='focus'?focusCategory:averageCategoryId;
-    const focus=categoryFocus(data,records,categoryId);
-    holder.innerHTML=kind==='focus'?focusStatMarkup(focus,categoryId,{exportControl:true})
-      :averageStatMarkup(focus.minutes,recordedDayCount(records),displayGroup(categoryId,'categories'));
+  const records=fullPeriodEntries(mode), holder=document.createElement('div');
+  if(kind==='focus'){
+    holder.innerHTML=focusStatMarkup(categoryFocus(data,records,focusCategoryIds),categorySelection(focusCategoryIds),{exportControl:true});
+  }else if(kind==='average'){
+    const focus=categoryFocus(data,records,averageCategoryId);
+    holder.innerHTML=averageStatMarkup(focus.minutes,recordedDayCount(records),displayGroup(averageCategoryId,'categories'));
   }else{
     const entries=filteredEntries(records);
     holder.innerHTML=kind==='categories'?categoryStatMarkup(entries):daysStatMarkup(recordedDayCount(entries));
@@ -753,13 +796,29 @@ function buildExportDistribution(exportDate){
 }
 function buildExportYear(){
   const card=document.createElement('div');card.className='overview-card export-year-component';
-  const heatmap=yearHeatmap(),{year,category}=heatmap;
-  card.innerHTML=`<div class="overview-toolbar"><h2>${year}年</h2><button type="button" class="export-year-category" data-export-category="year" aria-label="选择年度分类" aria-haspopup="listbox" aria-expanded="false"><i class="legend-dot" style="background:${category.color}"></i><span>${h(category.name)}</span>${icon('down')}</button></div><div class="overview-body">${yearChartMarkup(heatmap)}</div><div class="overview-footer"><div class="legend">${heatmapLegend(heatmap)}</div></div>`;
+  const heatmap=yearHeatmap();
+  const focusButton = statCategoryButton(categorySelection(focusCategoryIds),'data-export-category="year"','选择关注分类');
+  card.innerHTML=`<div class="overview-toolbar"><h2>${heatmap.year}年</h2>${focusButton}</div><div class="stats export-year-stats">${annualStatsMarkup(fullPeriodEntries('year'),true)}</div><div class="overview-body">${yearChartMarkup(heatmap)}</div><div class="overview-footer"><div class="legend">${heatmapLegend(heatmap)}</div><span class="period-total">${heatmap.entryCount} 条记录</span></div>`;
   return card;
 }
 const timelineExport=setupTimelineExport({$,icon,toast,fullDate,timelineCard,layoutTimelineLabels,afterDialogExit,finishDialogCleanup,
-  getView:()=>view,getSelectedDate:()=>selected,getFocusCategory:()=>focusCategory,hasEntries:()=>entriesOn(data,selected).length>0,
-  exportPeriodTitle,buildExportStat,buildExportDistribution,buildExportYear,renderFocusChoices,renderYearCategoryChoices,openDropdown,closeDropdown});
+  getView:()=>view,getSelectedDate:()=>selected,getInitialAverageCategory:()=>focusCategoryIds[0],hasEntries:()=>entriesOn(data,selected).length>0,
+  exportPeriodTitle,buildExportStat,buildExportDistribution,buildExportYear,renderFocusChoices,renderAnnualCategoryChoices,openDropdown,closeDropdown});
+function refreshCategorySelection(dropdownId) {
+  const previousAnchor = dropdownAnchors.get(dropdownId);
+  if (dropdownId === 'annualCategoryDropdown' && view !== 'year') {
+    timelineExport.refresh();
+  } else {
+    const scrollLeft = $('overview').querySelector('.year-scroll')?.scrollLeft;
+    renderOverview(dropdownId);
+    if (scrollLeft) $('overview').querySelector('.year-scroll').scrollLeft = scrollLeft;
+  }
+  const anchor = previousAnchor?.id ? $(previousAnchor.id) : timelineExport.categoryButton(previousAnchor?.dataset.exportCategory);
+  if (!anchor || !$(dropdownId).matches(':popover-open')) return;
+  dropdownAnchors.set(dropdownId,anchor);
+  anchor.setAttribute('aria-expanded','true');
+  positionDropdown(dropdownId,$(dropdownId).dataset.align);
+}
 for (const id of ['periodPrev', 'dayPrev']) $(id).innerHTML = icon('left');
 for (const id of ['periodNext', 'dayNext']) $(id).innerHTML = icon('right');
 $('dateChevron').innerHTML = icon('down');
@@ -806,7 +865,10 @@ $('colorForm').onsubmit=function submitColor(event) {
   if(!/^#[0-9A-F]{6}$/.test(color)){$('colorError').textContent='请输入有效颜色，例如 #89A996';$('colorError').hidden=false;positionDropdown('colorDropdown',$('colorDropdown').dataset.align);return;}
   closeDropdown('colorDropdown');applyColor(color);
 };
-$('filterButton').onclick = () => { renderFilters(); openDropdown('filterDropdown', $('filterButton')); };
+$('filterButton').onclick = () => {
+  if (view === 'year') { renderFocusChoices(); openDropdown('focusDropdown',$('filterButton')); }
+  else { renderFilters(); openDropdown('filterDropdown',$('filterButton')); }
+};
 for (const id of ['startTime','endTime','queryStartTime','queryEndTime']) {
   const input=$(id),update=()=>id.startsWith('query')?syncQueryTime(id):updateDuration();
   input.oninput=update;
@@ -855,10 +917,25 @@ document.addEventListener('click', event => {
     return;
   }
   if (target.hasAttribute('data-focus-category')) {
-    focusCategory = target.dataset.focusCategory || null; closeDropdown('focusDropdown',false);
-    try { localStorage.setItem(FOCUS_KEY,JSON.stringify(focusCategory)); } catch { toast('关注分类未能保存，当前页面仍可使用'); }
-    renderOverview();
-    ($('timelineExportDialog').open?timelineExport.categoryButton('focus'):$('focusCategoryButton'))?.focus({preventScroll:true});return;
+    const id = target.dataset.focusCategory || null;
+    if (focusCategoryIds.length === 1 && focusCategoryIds.includes(id)) return;
+    focusCategoryIds = toggleCategoryId(focusCategoryIds,id);
+    try { localStorage.setItem(FOCUS_KEY,JSON.stringify(focusCategoryIds)); } catch { toast('关注分类未能保存，当前页面仍可使用'); }
+    paintCategoryChoices($('focusCategoryChoices'),button => focusCategoryIds.includes(button.dataset.focusCategory || null));
+    refreshCategorySelection('focusDropdown');
+    return;
+  }
+  if (target.id === 'annualCategoryButton') {
+    renderAnnualCategoryChoices(); openDropdown('annualCategoryDropdown',target);
+    return;
+  }
+  if (target.hasAttribute('data-annual-all') || target.hasAttribute('data-annual-category')) {
+    annualCategoryIds = target.hasAttribute('data-annual-all') ? null : toggleCategoryId(annualCategoryIds ?? [],target.dataset.annualCategory || null);
+    if (!annualCategoryIds?.length) annualCategoryIds = null;
+    paintCategoryChoices($('annualCategoryChoices'),button => button.hasAttribute('data-annual-all')
+      ? annualCategoryIds === null : annualCategoryIds?.includes(button.dataset.annualCategory || null) ?? false);
+    refreshCategorySelection('annualCategoryDropdown');
+    return;
   }
   if (target.dataset.close) { $(target.dataset.close).close(); return; }
   if (target.dataset.dismissPopover) { closeDropdown(target.dataset.dismissPopover); return; }
@@ -907,10 +984,6 @@ document.addEventListener('click', event => {
   if (target.hasAttribute('data-filter')) { const id = target.dataset.filter || null, kind = target.dataset.filterKind; filter = filter?.kind === kind && filter.id === id ? null : { kind, id }; renderOverview(); return; }
   if (target.dataset.filterAll) { filter=null;closeDropdown('filterDropdown');renderOverview(); return; }
   if (target.hasAttribute('data-filter-choice')) { filter={kind:target.dataset.filterKind,id:target.dataset.filterChoice||null};closeDropdown('filterDropdown');renderOverview(); return; }
-  if (target.hasAttribute('data-year-category')) {
-    yearCategory=target.dataset.yearCategory||null;closeDropdown('filterDropdown',false);renderOverview();
-    ($('timelineExportDialog').open?timelineExport.categoryButton('year'):$('filterButton'))?.focus({preventScroll:true});return;
-  }
 
   if (target.dataset.color) { modalColor = target.dataset.color; modalColorManual = true; renderColors(); return; }
   if (target.dataset.deleteEvent) {
@@ -1089,7 +1162,7 @@ $('timeBands').addEventListener('keydown', event => { if (event.target.matches('
 document.addEventListener('keydown', event => { if (event.key === 'Escape') { closeBackup(); cancelDrag(); } });
 window.addEventListener('storage', event => {
   if (event.key === FOCUS_KEY) {
-    try { const id=event.newValue===null?'study':JSON.parse(event.newValue); if(id===null||typeof id==='string'){focusCategory=id;renderOverview();} } catch {}
+    try { focusCategoryIds = readFocusCategoryIds(event.newValue); renderOverview(); } catch {}
     return;
   }
   if (event.key !== STORAGE_KEY) return;

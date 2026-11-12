@@ -1,8 +1,8 @@
 import {renderExportPng} from './image-export.js';
 
 export function setupTimelineExport({$,icon,toast,fullDate,timelineCard,layoutTimelineLabels,afterDialogExit,finishDialogCleanup,
-  getView,getSelectedDate,getFocusCategory,hasEntries,exportPeriodTitle,buildExportStat,buildExportDistribution,buildExportYear,
-  renderFocusChoices,renderYearCategoryChoices,openDropdown,closeDropdown}){
+  getView,getSelectedDate,getInitialAverageCategory,hasEntries,exportPeriodTitle,buildExportStat,buildExportDistribution,buildExportYear,
+  renderFocusChoices,renderAnnualCategoryChoices,openDropdown,closeDropdown}){
   $('timelineDownloadButton').innerHTML=icon('backup');
   $('timelineDownloadButton').onclick=()=>{
     finishDialogCleanup($('timelineExportDialog'));
@@ -11,7 +11,7 @@ export function setupTimelineExport({$,icon,toast,fullDate,timelineCard,layoutTi
     const mode=['year','day'].includes(view)?view:'month';
     exportRanges.categories=mode;exportRanges.focus=mode;
     exportRanges.average=exportRanges.days=view==='year'?'year':'month';
-    averageCategoryId=getFocusCategory();
+    averageCategoryId=getInitialAverageCategory();
     $('exportViewLabel').textContent=`当前${{year:'年',month:'月',week:'周',day:'日'}[view]}视图`;
     $('exportOverviewModule').closest('.export-widget-option').hidden=view==='year';
     renderExportWidgets();
@@ -33,7 +33,8 @@ export function setupTimelineExport({$,icon,toast,fullDate,timelineCard,layoutTi
       const content=kind==='distribution'?buildExportDistribution(getSelectedDate()):kind==='year'?buildExportYear():Object.hasOwn(exportRanges,kind)?buildSummaryStat(kind):sources[kind].cloneNode(true);
       if(widget.dataset.exportWidget==='timeline')content.append($('dayLegend').cloneNode(true));
       content.removeAttribute('id');content.querySelectorAll('[id]').forEach(element=>element.removeAttribute('id'));
-      content.querySelectorAll('.stat-label,.continue-marker,.hover-cursor,.selection,.drag-readout,.time-band-callouts,.timeline-actions').forEach(element=>element.remove());
+      content.querySelectorAll('.continue-marker,.hover-cursor,.selection,.drag-readout,.time-band-callouts,.timeline-actions').forEach(element=>element.remove());
+      if(kind!=='year')content.querySelectorAll('.stat-label').forEach(element=>element.remove());
       content.querySelectorAll('.needs-callout').forEach(element=>element.classList.remove('needs-callout'));
       if(widget.dataset.exportWidget==='entries'){
         [...content.children].slice(3).forEach(element=>element.remove());
@@ -48,10 +49,9 @@ export function setupTimelineExport({$,icon,toast,fullDate,timelineCard,layoutTi
     const categoryKind=control?.dataset.exportCategory;
     if(categoryKind){
       event.stopPropagation();
-      if(categoryKind==='year'){renderYearCategoryChoices();openDropdown('filterDropdown',control);}
+      if(categoryKind==='annual'){renderAnnualCategoryChoices();openDropdown('annualCategoryDropdown',control);}
       else{
-        const forAverage=categoryKind==='average';
-        renderFocusChoices(forAverage?averageCategoryId:getFocusCategory(),forAverage);
+        renderFocusChoices(categoryKind==='average'?averageCategoryId:undefined);
         openDropdown('focusDropdown',control);
       }
       return;
@@ -149,7 +149,10 @@ export function setupTimelineExport({$,icon,toast,fullDate,timelineCard,layoutTi
       page.append(section);
     }
     page.querySelectorAll('[id]').forEach(element=>element.removeAttribute('id'));
-    page.querySelectorAll('.focus-category-trigger svg,[data-export-category] svg').forEach(element=>element.remove());
+    page.querySelectorAll('[data-category-names]').forEach(button=>{
+      const label=document.createElement('span');label.className='export-category-selection';
+      label.textContent=button.dataset.categoryNames;button.replaceWith(label);
+    });
     page.querySelectorAll('.empty-add,.empty-chart').forEach(element=>{
       const empty=document.createElement('span');empty.className='export-empty';empty.textContent='暂无记录';element.replaceWith(empty);
     });

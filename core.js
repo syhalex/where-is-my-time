@@ -100,9 +100,13 @@ export function statisticsEntries(data, today = dateKey(new Date())) {
   }
   return result.sort((a,b)=>a.date.localeCompare(b.date)||a.start-b.start);
 }
-export function categoryFocus(data, entries, categoryId) {
-  const groups = categoryTotals(data, entries), total = groups.reduce((sum,[,minutes])=>sum+minutes,0);
-  const minutes = groups.find(([id])=>id===categoryId)?.[1] || 0;
+export function categoryFocus(data, entries, categoryIds) {
+  const selected = new Set(Array.isArray(categoryIds) ? categoryIds : [categoryIds]);
+  let minutes = 0, total = 0;
+  for (const [id, duration] of categoryTotals(data, entries)) {
+    total += duration;
+    if (selected.has(id)) minutes += duration;
+  }
   return {minutes,total,share:total ? minutes/total : 0};
 }
 export function pruneUnusedEvents(data) {

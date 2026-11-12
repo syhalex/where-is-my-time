@@ -140,6 +140,15 @@ test('focus share includes other time in its denominator and supports unclassifi
   assert.deepEqual(categoryFocus(data,stats,null),{minutes:1380,total:1440,share:1380/1440});assert.deepEqual(categoryFocus(data,[],'study'),{minutes:0,total:0,share:0});
 });
 
+test('multiple focus categories share a denominator and count each category once',()=>{
+  const study = record(emptyData(),{categoryId:'study'});
+  const data = record(study,{name:'跑步',start:600,end:630,categoryId:'exercise'});
+  const stats = statisticsEntries(data,'2026-10-30');
+  assert.deepEqual(categoryFocus(data,stats,['study','exercise','study']),{minutes:90,total:1440,share:90/1440});
+  assert.deepEqual(categoryFocus(data,stats,['study','exercise',null]),{minutes:1440,total:1440,share:1});
+  assert.deepEqual(categoryFocus(data,stats,[]),{minutes:0,total:1440,share:0});
+});
+
 test('automatic other time remains absent from backups and does not capture a similarly named event',()=>{
   const data=record(emptyData(),{name:'其他时间',categoryId:'study'}),before=structuredClone(data);const stats=statisticsEntries(data,'2026-10-30');
   assert.deepEqual(data,before);assert.deepEqual(validateData(data),before);assert.deepEqual(categoryTotals(data,stats),[[null,1380],['study',60]]);
