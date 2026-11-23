@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 const root = path.dirname(fileURLToPath(import.meta.url));
 const types = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml' };
-const allowed = new Set(['index.html', 'app.js', 'core.js', 'storage.js', 'backup-ui.js', 'comparison.js', 'comparison-ui.js', 'sharing.js', 'image-export.js', 'timeline-export-ui.js', 'vendor/html2canvas.esm.js', 'styles.css', 'icon.svg']);
+const allowed = new Set(['index.html', 'theme.js', 'app.js', 'core.js', 'storage.js', 'backup-ui.js', 'comparison.js', 'comparison-ui.js', 'sharing.js', 'image-export.js', 'timeline-export-ui.js', 'vendor/html2canvas.esm.js', 'styles.css', 'icon.svg']);
 const host = '127.0.0.1';
 const server = http.createServer(async (req, res) => {
   try {

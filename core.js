@@ -60,10 +60,14 @@ export function hsvToHex({h,s,v}) {
   const rgb=h<60?[c,x,0]:h<120?[x,c,0]:h<180?[0,c,x]:h<240?[0,x,c]:h<300?[x,0,c]:[c,0,x];
   return '#'+rgb.map(n=>Math.round((n+m)*255).toString(16).padStart(2,'0')).join('').toUpperCase();
 }
-export function heatColor(color, minutes, peakMinutes) {
-  if (minutes <= 0 || peakMinutes <= 0) return '#EEF1E8';
-  const strength = .12 + .88 * Math.min(1, minutes / peakMinutes), base = [238, 241, 232];
-  return `#${[1, 3, 5].map((i, n) => Math.round(base[n] + (parseInt(color.slice(i, i + 2), 16) - base[n]) * strength).toString(16).padStart(2, '0')).join('').toUpperCase()}`;
+export function heatColor(color, minutes, peakMinutes, base = '#EEF1E8') {
+  if (minutes <= 0 || peakMinutes <= 0) return base;
+  const strength = .12 + .88 * Math.min(1, minutes / peakMinutes);
+  return `#${[1, 3, 5].map(i => {
+    const start = parseInt(base.slice(i, i + 2), 16);
+    const end = parseInt(color.slice(i, i + 2), 16);
+    return Math.round(start + (end - start) * strength).toString(16).padStart(2, '0');
+  }).join('').toUpperCase()}`;
 }
 export const dateKey = date => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 export const fromKey = key => new Date(`${key}T12:00:00`);

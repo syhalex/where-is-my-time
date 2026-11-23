@@ -7,13 +7,33 @@
   <meta name="description" content="WhereIsMyTime，记录每天的时间去向。">
   <title>WhereIsMyTime</title>
   <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <script src="theme.js"></script>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <main>
     <div id="storageNotice" class="storage-notice" role="alert" hidden><span id="storageNoticeText"></span><div><button type="button" id="storageExport" class="button quiet small">导出原件</button><button type="button" id="storageRestore" class="button primary small">找回记录</button></div></div>
     <section class="overview-section" aria-labelledby="overviewHeading">
-      <div class="section-heading overview-heading"><div class="overview-title-group"><h1 id="overviewHeading">时间总览</h1><button type="button" class="icon-button" id="overviewToggle" aria-label="收起时间总览" aria-expanded="true" aria-controls="overviewViewSwitch overviewCard"></button></div><div class="overview-controls"><div class="view-switch" id="overviewViewSwitch" role="tablist" aria-label="总览视图"><button role="tab" data-view="year">年</button><button role="tab" data-view="month">月</button><button role="tab" data-view="week">周</button><button role="tab" data-view="day">日</button></div><nav class="header-actions" aria-label="工具"><button class="button quiet" id="queryButton" aria-haspopup="dialog" aria-controls="queryDialog"></button><button class="button quiet" id="manageEvents"></button><button class="button quiet" id="compareRecords" aria-haspopup="dialog" aria-controls="comparisonDialog"></button><div class="menu-wrap"><button class="button quiet" id="backupButton" aria-expanded="false" aria-controls="backupMenu"></button><div class="dropdown" id="backupMenu" hidden><button id="shareLinkButton">复制分享链接</button><button id="exportButton">导出备份</button><button id="importButton">导入备份</button><button id="recoverButton">查询本机备份</button></div></div></nav></div></div>
+      <div class="section-heading overview-heading">
+        <div class="overview-title-group"><h1 id="overviewHeading">时间总览</h1><button type="button" class="icon-button" id="overviewToggle" aria-label="收起时间总览" aria-expanded="true" aria-controls="overviewViewSwitch overviewCard"></button></div>
+        <div class="overview-controls">
+          <div class="view-switch" id="overviewViewSwitch" role="tablist" aria-label="总览视图"><button role="tab" data-view="year">年</button><button role="tab" data-view="month">月</button><button role="tab" data-view="week">周</button><button role="tab" data-view="day">日</button></div>
+          <nav class="header-actions" aria-label="工具">
+            <button class="button quiet" id="queryButton" aria-haspopup="dialog" aria-controls="queryDialog"></button>
+            <button class="button quiet" id="manageEvents"></button>
+            <button class="button quiet" id="compareRecords" aria-haspopup="dialog" aria-controls="comparisonDialog"></button>
+            <div class="backup-actions">
+              <div class="menu-wrap"><button class="button quiet" id="backupButton" aria-expanded="false" aria-controls="backupMenu"></button><div class="dropdown" id="backupMenu" hidden><button id="shareLinkButton">复制分享链接</button><button id="exportButton">导出备份</button><button id="importButton">导入备份</button><button id="recoverButton">查询本机备份</button></div></div>
+              <button type="button" id="themeToggle" class="button quiet theme-toggle" aria-label="切换深色模式">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path class="theme-moon" d="M20.9 13.3A9 9 0 0 1 10.7 3.1 9 9 0 1 0 20.9 13.3Z"/>
+                  <g class="theme-sun"><circle cx="12" cy="12" r="4"/><path d="M12 2.5v2m0 15v2m9.5-9.5h-2m-15 0h-2m16.22-6.72L17.3 6.7M6.7 17.3l-1.42 1.42m13.44 0-1.42-1.42M6.7 6.7 5.28 5.28"/></g>
+                </svg>
+              </button>
+            </div>
+          </nav>
+        </div>
+      </div>
       <div class="overview-card" id="overviewCard">
         <div class="overview-toolbar"><div class="period-picker"><button class="icon-button" id="periodPrev" aria-label="上一时段"></button><h2 id="periodTitle"></h2><button class="icon-button" id="periodNext" aria-label="下一时段"></button><button class="button small quiet today-button" id="periodToday">今天</button></div><div class="overview-display-controls"><div id="aggregationSwitch" class="aggregation-switch" role="group" aria-label="时间支出展示方式"><button data-aggregation="events" aria-pressed="true">按事件</button><button data-aggregation="categories" aria-pressed="false">按分类</button></div><button class="filter-button" id="filterButton" aria-label="筛选事件"></button></div></div>
         <div class="stats" id="stats"></div>

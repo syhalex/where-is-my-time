@@ -202,11 +202,16 @@ function yearHeatmap() {
   records.heatmap = {year, categoryKey, category, minutesByDate, peakMinutes, entryCount};
   return records.heatmap;
 }
+function heatmapStyle(color, minutes, peakMinutes) {
+  const light = heatColor(color, minutes, peakMinutes);
+  const dark = heatColor(color, minutes, peakMinutes, '#292B30');
+  return `background:var(--heatmap-color,${light});--heatmap-dark-color:${dark}`;
+}
 function heatmapLegend({category,peakMinutes}){
   const steps = peakMinutes ? [0,.25,.5,.75,1] : [0];
   return `<span class="heatmap-legend-title">单日时长</span><div class="heatmap-scale">${steps.map(fraction=>{
     const minutes = peakMinutes * fraction;
-    return `<span><i style="background:${heatColor(category.color,minutes,peakMinutes)}"></i>${durationText(Math.round(minutes))}</span>`;
+    return `<span><i style="${heatmapStyle(category.color, minutes, peakMinutes)}"></i>${durationText(Math.round(minutes))}</span>`;
   }).join('')}</div>`;
 }
 function categoryStatMarkup(entries){
@@ -313,7 +318,7 @@ function renderWeek() {
 function renderDayOverview(entries) {
   const groups = displayTotals(entries), total = groups.reduce((sum,[,minutes])=>sum+minutes,0); let stops = [], start = 0;
   for (const [id, mins] of groups) { const end = start + mins / total * 100; stops.push(`${displayGroup(id).color} ${start}% ${end}%`); start = end; }
-  stops.push(`#eef1e7 ${start}% 100%`);
+  stops.push(`var(--chart-track) ${start}% 100%`);
   $('overview').innerHTML = `<div class="day-overview"><div class="donut" style="background:conic-gradient(${stops.join(',')})"><div class="donut-content"><span class="donut-number spending-number">${durationText(total)}</span><span class="donut-label">事件合计</span></div></div><div class="day-bars">${groups.map(([id, mins]) => { const t = displayGroup(id); return `<div><div class="day-bar-header"><span>${h(t.name)}</span><span>${durationText(mins)}</span></div><div class="day-bar-track"><div class="day-bar-fill" style="background:${t.color};width:${mins / total * 100}%"></div></div></div>`; }).join('') || `<div class="empty-chart"><button class="button quiet" data-new-date="${cursor}">${icon('plus')}添加记录</button></div>`}</div></div>`;
 }
 function yearChartMarkup({year,category,minutesByDate,peakMinutes}) {
@@ -329,7 +334,7 @@ function yearChartMarkup({year,category,minutesByDate,peakMinutes}) {
       const outside = key < first || key >= end;
       const total = outside ? 0 : minutesByDate.get(key) || 0;
       const label = `${fullDate(key)}，${category.fullName} ${durationText(total)}，全天占比 ${Number((total / 1440 * 100).toFixed(1))}%`;
-      html += `<button class="year-day${outside ? ' outside' : ''}${key === selected ? ' selected' : ''}" data-date="${key}" title="${h(label)}" aria-label="${h(label)}" style="background:${heatColor(category.color, total, peakMinutes)}" ${outside ? 'tabindex="-1" disabled' : ''}></button>`;
+      html += `<button class="year-day${outside ? ' outside' : ''}${key === selected ? ' selected' : ''}" data-date="${key}" title="${h(label)}" aria-label="${h(label)}" style="${heatmapStyle(category.color, total, peakMinutes)}" ${outside ? 'tabindex="-1" disabled' : ''}></button>`;
     }
     html += '</div>';
   }
@@ -381,7 +386,7 @@ function renderRecording() {
   list.dataset.date=selected;list.scrollTop=scrollTop;
   $('dayLegend').innerHTML = totals(records).map(([id, mins]) => legendItem(id, mins, false)).join('');
   const blank = Math.max(0,1440-recordedMinutes(statsRecords));
-  $('dayDistribution').innerHTML = `<div class="distribution-bar">${totals(statsRecords).map(([id,mins])=>`<span style="flex:${mins};background:${getEvent(data,id).color}" title="${h(getEvent(data,id).name)} ${durationText(mins)}"></span>`).join('')}${blank?`<span style="flex:${blank};background:#f0f3e9"></span>`:''}</div><div class="distribution-row"><span>24 小时</span></div>`;
+  $('dayDistribution').innerHTML = `<div class="distribution-bar">${totals(statsRecords).map(([id,mins])=>`<span style="flex:${mins};background:${getEvent(data,id).color}" title="${h(getEvent(data,id).name)} ${durationText(mins)}"></span>`).join('')}${blank?`<span style="flex:${blank};background:var(--distribution-gap)"></span>`:''}</div><div class="distribution-row"><span>24 小时</span></div>`;
 }
 function render() { renderOverview(); renderRecording(); if($('queryDialog').open){runQuery();renderQueryChoices();} }
 const queryEvents = new Set(), queryCategories = new Set();
